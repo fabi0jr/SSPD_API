@@ -1,2 +1,2 @@
 # O simulador em si só usa a biblioteca padrão. Isto é só para os testes.
-pytest>=8,<9
+pytest==8.4.2

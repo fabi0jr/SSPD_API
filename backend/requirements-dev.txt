@@ -1,3 +1,16 @@
 -r requirements.txt
-pytest>=8,<9
-httpx2>=2.10,<3   # cliente do TestClient (Starlette >= 1.10)
+
+# Versões fixas, como no requirements.txt.
+pytest==8.4.2
+httpx2==2.16.2   # cliente do TestClient (Starlette >= 1.10)
+
+# Indiretas
+certifi==2026.11.20
+httpcore==1.0.9
+httpcore2==2.16.2
+httpx==0.28.1
+iniconfig==2.3.1
+packaging==26.4
+pluggy==1.7.0
+Pygments==2.21.0
+truststore==0.10.5
