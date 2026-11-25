@@ -18,9 +18,9 @@ Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece
 
 ## 1. Escopo atual
 
-Em execução, o sistema hoje tem a API e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
+Em execução, o sistema hoje tem a API, o worker de alertas e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
-As regras de alerta, o caso de uso que as aplica e a fila no PostgreSQL já estão implementados e testados, mas **não há um processo de worker que os execute**. Por isso nenhum alerta é gerado em execução.
+O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. Os serviços ainda rodam direto no Python: Dockerfile e Compose são as próximas etapas.
 
 ## 2. Arquitetura
 
@@ -29,10 +29,8 @@ O backend usa uma arquitetura hexagonal leve (portas e adaptadores). A API HTTP 
 ```
    [FastAPI / HTTP] ──────────┐                         ┌── [Postgres: repositórios]
                               ├─> aplicacao ─> dominio <┤
-   [Worker / polling]*  ──────┘   (casos de uso) (portas)└── [Postgres: fila de pendentes]
+   [Worker / polling]   ──────┘   (casos de uso) (portas)└── [Postgres: fila de pendentes]
    adaptadores de entrada                                   adaptadores de saída
-
-   * pendente
 ```
 
 ### 2.1 Regra de dependência
@@ -51,13 +49,13 @@ O teste [test_arquitetura.py](../backend/tests/unit/test_arquitetura.py) lê os 
 
 As portas são `typing.Protocol` definidos em [portas.py](../backend/app/dominio/portas.py). Cada uma tem uma implementação em PostgreSQL e uma em memória, em [fakes.py](../backend/tests/fakes.py), usada nos testes unitários.
 
-| Porta | Responsabilidade | Usada hoje pela API |
+| Porta | Responsabilidade | Usada por |
 |---|---|---|
-| `RepositorioPacientes` | consultar, listar e criar pacientes | sim |
-| `RepositorioLeituras` | gravar leituras e consultar histórico | sim |
-| `RepositorioAlertas` | listar, obter e atualizar alertas | sim |
-| `RepositorioUsuarios` | buscar usuário por e-mail | sim (login) |
-| `FilaPendentes` e `LotePendente` | reservar e processar leituras pendentes | não (será usada pelo worker) |
+| `RepositorioPacientes` | consultar, listar e criar pacientes | API |
+| `RepositorioLeituras` | gravar leituras e consultar histórico | API |
+| `RepositorioAlertas` | listar, obter e atualizar alertas | API |
+| `RepositorioUsuarios` | buscar usuário por e-mail | API (login) |
+| `FilaPendentes` e `LotePendente` | reservar e processar leituras pendentes | worker |
 
 ### 2.3 Composição
 
@@ -66,6 +64,8 @@ A injeção de dependência é manual. A função `criar_app_http`, em [composic
 O adaptador HTTP não conhece o SQLAlchemy: as exceções que significam "banco fora" também são passadas pela composição.
 
 Para expor um novo caso de uso em uma rota: criar um campo em `Componentes`, uma função em [deps.py](../backend/app/adaptadores/entrada/http/deps.py) e a montagem em `montar_componentes_http`.
+
+O worker segue o mesmo padrão: `rodar_worker` lê o ambiente e `montar_worker` entrega ao adaptador [worker/main.py](../backend/app/adaptadores/entrada/worker/main.py) o `ProcessarPendentes` já ligado à fila do PostgreSQL e as exceções que significam "banco fora". O comando é `python -m app.composicao worker`.
 
 ## 3. Domínio
 
@@ -120,7 +120,7 @@ Uma mesma leitura pode gerar mais de um alerta. Os limites são uma simplificaç
 
 ### 4.2 `ProcessarPendentes`
 
-[processar_pendentes.py](../backend/app/aplicacao/processar_pendentes.py) executa um ciclo do futuro worker:
+[processar_pendentes.py](../backend/app/aplicacao/processar_pendentes.py) executa um ciclo do worker:
 
 1. reserva até `limite` leituras pendentes, das mais antigas para as mais novas;
 2. aplica as regras a cada leitura;
@@ -166,6 +166,26 @@ SELECT * FROM leituras
 | Dois workers ao mesmo tempo | `SKIP LOCKED` faz cada um pegar leituras diferentes |
 
 Dois workers ainda poderiam abrir o mesmo alerta a partir de leituras diferentes. O índice único parcial `uq_alertas_aberto_por_tipo` impede isso no banco, e a inserção repetida é ignorada. Os alertas são inseridos em ordem fixa (paciente, tipo) para evitar deadlock. Nessa disputa, o contador de um ciclo pode indicar um alerta a mais do que foi gravado.
+
+### 5.1 Processo do worker
+
+O adaptador de entrada [worker/main.py](../backend/app/adaptadores/entrada/worker/main.py) chama `ProcessarPendentes.executar(WORKER_LOTE)` a cada `WORKER_INTERVALO` segundos. Cada ciclo que processou alguma leitura gera uma linha no log; ciclos vazios não geram nada, para o log não encher com o worker ocioso:
+
+```
+2026-11-25T11:46:11-0400 INFO [worker] ciclo: processadas=500 alertas=1 backlog=700 duracao_ms=47
+```
+
+`backlog` é o número de leituras que continuam pendentes depois do commit. Essa linha é a evidência do teste de falha do worker.
+
+| Situação | Comportamento |
+|---|---|
+| Lote cheio e ainda há pendentes | o ciclo seguinte começa sem esperar o intervalo, para esvaziar rápido o backlog acumulado durante uma queda |
+| Banco fora | uma linha `WARNING ... banco indisponível (OperationalError)` por ciclo, sem traceback, e nova tentativa no ciclo seguinte, sem prazo. O worker não encerra. Na volta, uma linha `banco disponível novamente`, mesmo que não haja leituras a processar |
+| Erro inesperado | traceback no log; o lote sofre rollback e é reprocessado no ciclo seguinte |
+| `SIGTERM` (`docker stop`) ou `SIGINT` | o ciclo em andamento termina (a transação chega ao commit) e o processo sai com código 0, sem esperar o fim do intervalo |
+| `WORKER_INTERVALO` ou `WORKER_LOTE` menor ou igual a zero, ou não inteiro | o worker não sobe (erro de configuração) |
+
+Diferente da API, o worker não chama `aguardar_banco` no início: o próprio loop já tenta de novo a cada ciclo, e uma espera longa no início atrasaria a resposta ao `docker stop`. O pool do worker tem no máximo 2 conexões, porque ele usa uma sessão por vez.
 
 ## 6. Modelo de dados
 
@@ -318,19 +338,20 @@ Os timestamps de saída (`ts`, `recebido_em`, `criado_em`) vêm sempre em UTC co
 | Mecanismo | Situação |
 |---|---|
 | Idempotência no `POST /leituras` (UUID do sensor e `ON CONFLICT DO NOTHING`) | ✅ implementado |
-| Nova tentativa de conexão com o banco no início, com espera crescente (0,5 s até 5 s, por cerca de 30 s) | ✅ API, migrations e seed; pendente no worker |
+| Nova tentativa de conexão com o banco no início, com espera crescente (0,5 s até 5 s, por cerca de 30 s) | ✅ API, migrations e seed. O worker tenta de novo a cada ciclo, sem prazo |
 | Modo degradado: a API sobe mesmo sem banco e o `/health` responde 503 | ✅ implementado |
 | Recuperação sem reiniciar (`pool_pre_ping` descarta conexões mortas) | ✅ implementado |
 | Falha rápida com banco fora (`connect_timeout` de 5 s, espera pelo pool de até 10 s) | ✅ implementado |
 | Uma linha de log por falha esperada, sem traceback | ✅ implementado |
-| Fechamento do pool de conexões no encerramento da API | ✅ implementado |
+| Fechamento do pool de conexões no encerramento da API e do worker | ✅ implementado |
 | Anti-spam com vários workers (`SKIP LOCKED` e índice único) | ✅ implementado no caso de uso e no adaptador |
 | API sem sessão em memória, preparada para réplicas | ✅ no código; réplicas dependem do Compose e do Nginx (pendentes) |
 | Migrations separadas da inicialização da API | ✅ comando separado; serviço `migrate` pendente |
-| Processo do worker, desacoplado da ingestão | ⬜ pendente |
+| Processo do worker, desacoplado da ingestão | ✅ implementado (seção 5.1) |
+| Encerramento limpo do worker por `SIGTERM`, sem perder o ciclo em andamento | ✅ implementado |
 | Buffer local e reenvio no simulador | ⬜ pendente |
 
-Cada processo mantém no máximo 10 conexões (pool de 5, mais 5 extras).
+Cada réplica da API mantém no máximo 10 conexões (pool de 5, mais 5 extras); o worker, no máximo 2.
 
 ### 8.2 Cenários de falha previstos para o sistema completo
 
@@ -341,7 +362,7 @@ Cada processo mantém no máximo 10 conexões (pool de 5, mais 5 extras).
 | Parar o worker | a ingestão continua e o backlog é processado na volta | log do worker e contagem de pendentes |
 | Parar o PostgreSQL | API responde 503, simulador guarda as leituras, tudo se recupera | tempo até a recuperação |
 
-Esses testes ainda **não foram executados** no ambiente completo. O ensaio parcial já feito está na seção 10.3.
+Esses testes ainda **não foram executados** no ambiente completo. Os ensaios parciais já feitos estão na seção 10.3.
 
 ## 9. Segurança da aplicação
 
@@ -366,8 +387,8 @@ Esses testes ainda **não foram executados** no ambiente completo. O ensaio parc
 
 | Conjunto | Banco | O que cobre |
 |---|---|---|
-| `tests/unit` (209 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos) e regra de dependência |
-| `tests/integracao` (40 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência e rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) |
+| `tests/unit` (228 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos), loop do worker (logs, banco fora, erro inesperado, SIGTERM, configuração) e regra de dependência |
+| `tests/integracao` (42 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência, rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) e worker montado pela composição (backlog em lotes, banco inacessível) |
 
 Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
 
@@ -377,9 +398,9 @@ Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
 
 | Execução | Resultado |
 |---|---|
-| Todos os testes | 249 passaram |
-| Somente unitários | 209 passaram |
-| Sem `TEST_DATABASE_URL` | 209 passaram e 40 foram pulados |
+| Todos os testes | 270 passaram |
+| Somente unitários | 228 passaram |
+| Sem `TEST_DATABASE_URL` | 228 passaram e 42 foram pulados |
 
 ### 10.3 Ensaio manual da API
 
@@ -410,6 +431,17 @@ Ensaio das rotas do dashboard (25/11/2026, uvicorn com uma instância, banco lim
 | `GET /alertas?status=aberto` | 1 alerta `SPO2_BAIXA` |
 | `PATCH /alertas/1` | 200, `status: reconhecido` |
 
+Ensaio do worker (25/11/2026, processo real `python -m app.composicao worker`, `WORKER_INTERVALO=1`, `WORKER_LOTE=500`, PostgreSQL descartável com 1200 leituras pendentes, duas delas alteradas):
+
+| Passo | Resultado observado |
+|---|---|
+| Início com 1200 pendentes | 3 ciclos seguidos, sem espera: backlog 700, 200 e 0; 2 alertas criados |
+| `docker stop` no PostgreSQL | uma linha `WARNING ... banco indisponível (OperationalError)` por segundo, sem traceback; o worker continuou no ar |
+| `docker start` no PostgreSQL | `banco disponível novamente` cerca de 1 s depois, sem reiniciar |
+| Sem leituras novas | nenhuma linha de ciclo no log |
+| Leitura nova gravada após a volta | processada no ciclo seguinte |
+| `kill -TERM` | `SIGTERM recebido; encerrando depois do ciclo atual` e `worker encerrado`; saiu com código 0 em 0,1 s |
+
 ### 10.4 Desempenho
 
 ⬜ Pendente. Previsto: k6 com 10, 100 e 500 sensores virtuais, medindo latência p50, p95 e p99, requisições por segundo e taxa de erro.
@@ -418,9 +450,8 @@ Ensaio das rotas do dashboard (25/11/2026, uvicorn com uma instância, banco lim
 
 Backend, na ordem prevista:
 
-1. processo do worker (ciclo periódico, logs e encerramento por SIGTERM);
-2. Dockerfile do backend e do simulador;
-3. script de carga k6.
+1. Dockerfile do backend e do simulador, e o simulador;
+2. script de carga k6.
 
 Comandos que o Docker Compose deverá usar, executados dentro de `backend/`:
 
@@ -428,7 +459,7 @@ Comandos que o Docker Compose deverá usar, executados dentro de `backend/`:
 |---|---|
 | `migrate` | `alembic upgrade head && python -m app.seed` |
 | `api` | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers` |
-| `worker` | a definir |
+| `worker` | `python -m app.composicao worker` |
 
 Pontos para a infraestrutura:
 
