@@ -27,7 +27,7 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 
 ## Technology Stack
 
-Python 3.12.3 no ambiente local. As dependências usam faixas em `backend/requirements*.txt`, sem arquivo de lock. Versões instaladas em `backend/.venv` nesta data:
+Python 3.12.3 no ambiente local. As dependências ficam com versão fixa (`==`, diretas e indiretas) em `backend/requirements*.txt`, que servem de lock; o `requirements.txt` explica como atualizar. Versões fixadas:
 
 FastAPI 0.165.0 (Starlette 1.10.0), Uvicorn 0.54.0, SQLAlchemy 2.1.9, psycopg 3.3.9, Alembic 1.20.1, Pydantic 2.14.4, bcrypt 5.0.0, PyJWT 2.15.1, pytest 8.4.2, httpx2 2.16.2. Banco: PostgreSQL 16.
 
