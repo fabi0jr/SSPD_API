@@ -30,3 +30,8 @@ def inteiro(nome: str, padrao: int) -> int:
 
 def database_url() -> str:
     return obrigatoria("DATABASE_URL")
+
+
+def lista(nome: str) -> list[str]:
+    """Lista separada por vírgula (ex.: CORS_ORIGINS). Vazia se não definida."""
+    return [item.strip() for item in os.environ.get(nome, "").split(",") if item.strip()]
