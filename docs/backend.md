@@ -1,0 +1,388 @@
+# Documentação técnica do backend
+
+Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md).
+
+## Sumário
+
+1. [Escopo atual](#1-escopo-atual)
+2. [Arquitetura](#2-arquitetura)
+3. [Domínio](#3-domínio)
+4. [Casos de uso](#4-casos-de-uso)
+5. [Fila de leituras pendentes](#5-fila-de-leituras-pendentes)
+6. [Modelo de dados](#6-modelo-de-dados)
+7. [API HTTP](#7-api-http)
+8. [Tolerância a falhas](#8-tolerância-a-falhas)
+9. [Segurança da aplicação](#9-segurança-da-aplicação)
+10. [Testes e resultados](#10-testes-e-resultados)
+11. [Pendências](#11-pendências)
+
+## 1. Escopo atual
+
+Em execução, o sistema hoje tem a API e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`).
+
+As regras de alerta, o caso de uso que as aplica e a fila no PostgreSQL já estão implementados e testados, mas **não há um processo de worker que os execute**. Por isso nenhum alerta é gerado em execução.
+
+## 2. Arquitetura
+
+O backend usa uma arquitetura hexagonal leve (portas e adaptadores). A API HTTP e o worker são adaptadores de entrada diferentes sobre o mesmo núcleo, e o PostgreSQL é um adaptador de saída.
+
+```
+   [FastAPI / HTTP] ──────────┐                         ┌── [Postgres: repositórios]
+                              ├─> aplicacao ─> dominio <┤
+   [Worker / polling]*  ──────┘   (casos de uso) (portas)└── [Postgres: fila de pendentes]
+   adaptadores de entrada                                   adaptadores de saída
+
+   * pendente
+```
+
+### 2.1 Regra de dependência
+
+| Camada | Pode importar | Não pode importar |
+|---|---|---|
+| `dominio` | biblioteca padrão | `aplicacao`, `adaptadores`, FastAPI, SQLAlchemy, Pydantic |
+| `aplicacao` | `dominio` | `adaptadores`, FastAPI, SQLAlchemy, Pydantic |
+| `adaptadores/entrada` | `aplicacao`, `dominio` | `adaptadores/saida`, `composicao` |
+| `adaptadores/saida` | `dominio` | `aplicacao`, `adaptadores/entrada`, `composicao` |
+| `composicao.py` | tudo | é o único ponto que liga as implementações concretas |
+
+O teste [test_arquitetura.py](../backend/tests/unit/test_arquitetura.py) lê os imports de cada camada e falha quando a regra é quebrada. O [seed.py](../backend/app/seed.py) é um entrypoint de infraestrutura, como o `composicao.py`, e usa o adaptador PostgreSQL diretamente.
+
+### 2.2 Portas
+
+As portas são `typing.Protocol` definidos em [portas.py](../backend/app/dominio/portas.py). Cada uma tem uma implementação em PostgreSQL e uma em memória, em [fakes.py](../backend/tests/fakes.py), usada nos testes unitários.
+
+| Porta | Responsabilidade | Usada hoje pela API |
+|---|---|---|
+| `RepositorioPacientes` | consultar, listar e criar pacientes | sim (`existe`) |
+| `RepositorioLeituras` | gravar leituras e consultar histórico | sim (`salvar_se_nova`) |
+| `RepositorioAlertas` | listar, obter e atualizar alertas | não |
+| `RepositorioUsuarios` | buscar usuário por e-mail | não |
+| `FilaPendentes` e `LotePendente` | reservar e processar leituras pendentes | não (será usada pelo worker) |
+
+### 2.3 Composição
+
+A injeção de dependência é manual. A função `criar_app_http`, em [composicao.py](../backend/app/composicao.py), lê o ambiente, cria o engine, aguarda o banco e entrega ao adaptador HTTP um objeto `Componentes` com os casos de uso e a função de verificação do banco.
+
+O adaptador HTTP não conhece o SQLAlchemy: as exceções que significam "banco fora" também são passadas pela composição.
+
+Para expor um novo caso de uso em uma rota: criar um campo em `Componentes`, uma função em [deps.py](../backend/app/adaptadores/entrada/http/deps.py) e a montagem em `montar_componentes_http`.
+
+## 3. Domínio
+
+### 3.1 Entidades
+
+Em [entidades.py](../backend/app/dominio/entidades.py): `Leitura`, `Alerta`, `Paciente`, `Usuario`, `ResumoPaciente` e `ResultadoCiclo`.
+
+Uma entidade inválida não chega a ser criada. As faixas de `Leitura` (extremos incluídos) são:
+
+| Campo | Faixa aceita |
+|---|---|
+| `fc` (bpm) | 20 a 250 |
+| `spo2` (%) | 50 a 100 |
+| `temp` (°C) | 30 a 43 |
+
+Valores fora da faixa indicam sensor com defeito ou dado corrompido, por isso são rejeitados em vez de gerar alerta. O `ts` precisa ter fuso horário.
+
+A regra "`ts` no máximo 5 minutos no futuro" depende do relógio e fica em `Leitura.validar_horario(agora)`. Uma leitura antiga, reenviada depois de uma falha, continua válida.
+
+### 3.2 Regras de alerta
+
+Funções puras em [regras.py](../backend/app/dominio/regras.py):
+
+| Tipo | Condição | Severidade |
+|---|---|---|
+| `SPO2_BAIXA` | spo2 < 90 | ALTA |
+| `TAQUICARDIA` | fc > 120 | MEDIA |
+| `BRADICARDIA` | fc < 50 | MEDIA |
+| `FEBRE` | temp ≥ 38,0 | MEDIA |
+| `HIPOTERMIA` | temp < 35,0 | ALTA |
+
+Uma mesma leitura pode gerar mais de um alerta. Os limites são uma simplificação para o trabalho acadêmico e não têm validação clínica.
+
+### 3.3 Erros
+
+| Erro de domínio | Status HTTP |
+|---|---|
+| `LeituraInvalida`, `PacienteInvalido` | 422 |
+| `PacienteNaoEncontrado`, `AlertaNaoEncontrado` | 404 |
+| `PacienteJaExiste` | 409 |
+
+## 4. Casos de uso
+
+### 4.1 `RegistrarLeitura`
+
+[registrar_leitura.py](../backend/app/aplicacao/registrar_leitura.py):
+
+1. valida o horário com o relógio recebido no construtor;
+2. confirma que o paciente existe;
+3. grava com `salvar_se_nova` e devolve `True` (nova) ou `False` (id repetido).
+
+### 4.2 `ProcessarPendentes`
+
+[processar_pendentes.py](../backend/app/aplicacao/processar_pendentes.py) executa um ciclo do futuro worker:
+
+1. reserva até `limite` leituras pendentes, das mais antigas para as mais novas;
+2. aplica as regras a cada leitura;
+3. aplica o anti-spam: não cria alerta se já houver um alerta `aberto` do mesmo tipo para o paciente, no banco ou no próprio lote;
+4. grava os alertas e marca as leituras como processadas, na mesma transação;
+5. depois do commit, devolve `ResultadoCiclo` (processadas, alertas criados e tamanho do backlog).
+
+Se algo falhar no meio, a transação é desfeita e o lote é processado no ciclo seguinte.
+
+## 5. Fila de leituras pendentes
+
+Não há broker de mensagens. A fila é a tabela `leituras`, implementada em [fila_pendentes.py](../backend/app/adaptadores/saida/postgres/fila_pendentes.py):
+
+```sql
+SELECT * FROM leituras
+ WHERE processada = false
+ ORDER BY ts
+ LIMIT :limite
+   FOR UPDATE SKIP LOCKED
+```
+
+| Situação | Efeito |
+|---|---|
+| Ciclo termina sem erro | `COMMIT` |
+| Exceção durante o ciclo | `ROLLBACK`, o lote volta a ficar pendente |
+| Processo morre ou perde a conexão | o PostgreSQL desfaz a transação e solta as travas |
+| Dois workers ao mesmo tempo | `SKIP LOCKED` faz cada um pegar leituras diferentes |
+
+Dois workers ainda poderiam abrir o mesmo alerta a partir de leituras diferentes. O índice único parcial `uq_alertas_aberto_por_tipo` impede isso no banco, e a inserção repetida é ignorada. Os alertas são inseridos em ordem fixa (paciente, tipo) para evitar deadlock. Nessa disputa, o contador de um ciclo pode indicar um alerta a mais do que foi gravado.
+
+## 6. Modelo de dados
+
+Criado pela migration [0001_inicial.py](../backend/migrations/versions/0001_inicial.py).
+
+**pacientes**
+
+| Coluna | Tipo | Observação |
+|---|---|---|
+| `id` | VARCHAR(10) | chave primária, ex. `P001` |
+| `nome` | VARCHAR(100) | fictício |
+| `leito` | VARCHAR(20) | opcional |
+| `criado_em` | TIMESTAMPTZ | padrão `now()` |
+
+**leituras**
+
+| Coluna | Tipo | Observação |
+|---|---|---|
+| `id` | UUID | chave primária, gerada pelo sensor |
+| `paciente_id` | VARCHAR(10) | referencia `pacientes` |
+| `fc` | SMALLINT | bpm |
+| `spo2` | NUMERIC(4,1) | % |
+| `temp` | NUMERIC(3,1) | °C |
+| `ts` | TIMESTAMPTZ | hora da medição (sensor) |
+| `recebido_em` | TIMESTAMPTZ | hora da chegada (servidor) |
+| `processada` | BOOLEAN | padrão `false` |
+
+**alertas**
+
+| Coluna | Tipo | Observação |
+|---|---|---|
+| `id` | BIGSERIAL | chave primária |
+| `paciente_id` | VARCHAR(10) | referencia `pacientes` |
+| `leitura_id` | UUID | referencia `leituras` |
+| `tipo` | VARCHAR(30) | ver seção 3.2 |
+| `valor` | NUMERIC(5,1) | valor que disparou o alerta |
+| `severidade` | VARCHAR(10) | `ALTA` ou `MEDIA` |
+| `status` | VARCHAR(15) | `aberto` (padrão) ou `reconhecido` |
+| `criado_em` | TIMESTAMPTZ | padrão `now()` |
+
+**usuarios**
+
+| Coluna | Tipo | Observação |
+|---|---|---|
+| `id` | SERIAL | chave primária |
+| `email` | VARCHAR(120) | único |
+| `senha_hash` | VARCHAR(200) | bcrypt |
+
+**Índices**
+
+| Índice | Colunas | Finalidade |
+|---|---|---|
+| `ix_leituras_paciente_ts` | `(paciente_id, ts DESC)` | histórico e última leitura |
+| `ix_leituras_pendentes` | `(ts)` onde `processada = false` | fila do worker |
+| `ix_alertas_status_criado_em` | `(status, criado_em DESC)` | listagem de alertas |
+| `uq_alertas_aberto_por_tipo` | `(paciente_id, tipo)` único, onde `status = 'aberto'` | anti-spam |
+
+Observações:
+
+- `spo2` e `temp` são gravados com uma casa decimal (97,43 vira 97,4). A fila lê o valor já arredondado.
+- `recebido_em - ts` mede o tempo entre a medição e a chegada. O valor inclui o tempo em buffer e a diferença de relógio do sensor.
+- Qualquer mudança em [models.py](../backend/app/adaptadores/saida/postgres/models.py) exige uma migration nova. Há um teste para isso.
+
+### 6.1 Seed
+
+`python -m app.seed` cria o usuário administrador e os pacientes `P001` até `SEED_PACIENTES`. Pode ser executado várias vezes: registros existentes não são alterados. Mudar `ADMIN_PASSWORD` depois não troca a senha de um administrador já criado.
+
+## 7. API HTTP
+
+Respostas em JSON. Swagger em `/docs`, ReDoc em `/redoc` e contrato em `/openapi.json`.
+
+### 7.1 `GET /health`
+
+Executa `SELECT 1` no banco. Não exige autenticação.
+
+| Status | Corpo |
+|---|---|
+| 200 | `{"status":"ok","db":"ok"}` |
+| 503 | `{"status":"degradado","db":"indisponivel"}` |
+
+### 7.2 `POST /leituras`
+
+Exige o header `X-API-Key`.
+
+```json
+{
+  "id": "6f1c2e7a-3b2d-4c4e-9a51-0b8f3a1d2c77",
+  "paciente_id": "P001",
+  "fc": 82,
+  "spo2": 97.4,
+  "temp": 36.7,
+  "ts": "2026-11-25T14:03:12.481Z"
+}
+```
+
+Sucesso: `{"id": "<uuid>", "nova": true}` com 201, ou `"nova": false` com 200 quando o `id` já existia. O cliente deve tratar qualquer 2xx como sucesso.
+
+| Status | Quando | Corpo |
+|---|---|---|
+| 201 | leitura nova | `{"id": ..., "nova": true}` |
+| 200 | `id` repetido (reenvio) | `{"id": ..., "nova": false}` |
+| 401 | chave ausente ou errada | `{"detail":"API key inválida ou ausente"}` |
+| 404 | paciente não cadastrado | `{"detail":"paciente 'P999' não encontrado"}` |
+| 422 | valor fora da faixa, `ts` no futuro ou formato inválido | `{"detail":[{"loc":["body","fc"],"msg":"...","type":"value_error"}]}` |
+| 503 | banco indisponível | `{"detail":"banco de dados indisponível, tente novamente"}`, com `Retry-After: 5` |
+| 500 | erro não previsto | `{"detail":"erro interno"}` |
+
+Notas:
+
+- A chave é conferida antes da validação dos campos: sem chave, um corpo com campo inválido responde 401. Um JSON malformado responde 422 mesmo sem chave.
+- Nos 422 de formato (gerados pelo próprio FastAPI), o campo `type` varia conforme o erro.
+
+### 7.3 Rotas pendentes
+
+| Método | Rota | Descrição |
+|---|---|---|
+| POST | `/auth/login` | login que devolve um token JWT |
+| GET | `/pacientes` | pacientes com última leitura e alertas abertos |
+| POST | `/pacientes` | cadastro de paciente |
+| GET | `/pacientes/{id}/ultima` | última leitura |
+| GET | `/pacientes/{id}/leituras` | histórico com filtros `desde`, `ate` e `limit` |
+| GET | `/alertas` | lista de alertas |
+| PATCH | `/alertas/{id}` | reconhecimento de alerta |
+
+## 8. Tolerância a falhas
+
+### 8.1 Mecanismos
+
+| Mecanismo | Situação |
+|---|---|
+| Idempotência no `POST /leituras` (UUID do sensor e `ON CONFLICT DO NOTHING`) | ✅ implementado |
+| Nova tentativa de conexão com o banco no início, com espera crescente (0,5 s até 5 s, por cerca de 30 s) | ✅ API, migrations e seed; pendente no worker |
+| Modo degradado: a API sobe mesmo sem banco e o `/health` responde 503 | ✅ implementado |
+| Recuperação sem reiniciar (`pool_pre_ping` descarta conexões mortas) | ✅ implementado |
+| Falha rápida com banco fora (`connect_timeout` de 5 s, espera pelo pool de até 10 s) | ✅ implementado |
+| Uma linha de log por falha esperada, sem traceback | ✅ implementado |
+| Fechamento do pool de conexões no encerramento da API | ✅ implementado |
+| Anti-spam com vários workers (`SKIP LOCKED` e índice único) | ✅ implementado no caso de uso e no adaptador |
+| API sem sessão em memória, preparada para réplicas | ✅ no código; réplicas dependem do Compose e do Nginx (pendentes) |
+| Migrations separadas da inicialização da API | ✅ comando separado; serviço `migrate` pendente |
+| Processo do worker, desacoplado da ingestão | ⬜ pendente |
+| Buffer local e reenvio no simulador | ⬜ pendente |
+
+Cada processo mantém no máximo 10 conexões (pool de 5, mais 5 extras).
+
+### 8.2 Cenários de falha previstos para o sistema completo
+
+| Cenário | Comportamento esperado | Evidência a coletar |
+|---|---|---|
+| Parar uma réplica da API | a outra atende e o Nginx redistribui | logs do Nginx e do simulador |
+| Parar as duas réplicas | o buffer do simulador cresce e esvazia na volta, sem duplicar | contagem de leituras antes e depois |
+| Parar o worker | a ingestão continua e o backlog é processado na volta | log do worker e contagem de pendentes |
+| Parar o PostgreSQL | API responde 503, simulador guarda as leituras, tudo se recupera | tempo até a recuperação |
+
+Esses testes ainda **não foram executados** no ambiente completo. O ensaio parcial já feito está na seção 10.3.
+
+## 9. Segurança da aplicação
+
+| Medida | Situação |
+|---|---|
+| API key para sensores, comparada em tempo constante | ✅ implementado |
+| Validação de tipo e formato (Pydantic) e de faixas (domínio) | ✅ implementado |
+| CORS restrito a `CORS_ORIGINS` | ✅ implementado |
+| Segredos somente em variáveis de ambiente; `.env` no `.gitignore` | ✅ implementado |
+| Respostas sem stack trace nem mensagem de exceção | ✅ implementado |
+| Senha do administrador armazenada com bcrypt | ✅ implementado |
+| Dados de pacientes fictícios (LGPD, art. 5º, II, e art. 11) | ✅ adotado |
+| Login com JWT para o dashboard | ⬜ pendente |
+| Container com usuário sem privilégios | ⬜ pendente (Dockerfile) |
+| HTTPS, firewall, SSH e limite de requisições | ⬜ pendente (infraestrutura) |
+
+## 10. Testes e resultados
+
+### 10.1 Organização
+
+| Conjunto | Banco | O que cobre |
+|---|---|---|
+| `tests/unit` (109 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP e regra de dependência |
+| `tests/integracao` (31 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência e rotas HTTP |
+
+Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
+
+### 10.2 Resultado
+
+Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
+
+| Execução | Resultado |
+|---|---|
+| Todos os testes | 140 passaram |
+| Somente unitários | 109 passaram |
+| Sem `TEST_DATABASE_URL` | 109 passaram e 31 foram pulados |
+
+### 10.3 Ensaio manual da API
+
+Execução de 25/11/2026 sobre uma cópia limpa do código, com **uma** instância da API e um PostgreSQL descartável:
+
+| Passo | Resultado observado |
+|---|---|
+| Migration e seed com 10 pacientes | 1 usuário e 10 pacientes criados; a segunda execução criou 0 |
+| `GET /health` | 200 |
+| Leitura nova | 201 |
+| Reenvio da mesma leitura | 200, `"nova": false` |
+| Chave errada | 401 |
+| Paciente inexistente | 404 |
+| `fc` igual a 999 | 422 |
+| PostgreSQL parado: `/health` e `POST /leituras` | 503, o segundo com `Retry-After: 5` |
+| PostgreSQL religado | `/health` voltou a 200 sem reiniciar a API |
+| Reenvio após a volta | 200, sem duplicar |
+| Contagem final | 1 leitura gravada, pendente de processamento |
+
+### 10.4 Desempenho
+
+⬜ Pendente. Previsto: k6 com 10, 100 e 500 sensores virtuais, medindo latência p50, p95 e p99, requisições por segundo e taxa de erro.
+
+## 11. Pendências
+
+Backend, na ordem prevista:
+
+1. login com JWT, rotas de consulta e reconhecimento de alertas;
+2. processo do worker (ciclo periódico, logs e encerramento por SIGTERM);
+3. Dockerfile do backend e do simulador;
+4. script de carga k6.
+
+Comandos que o Docker Compose deverá usar, executados dentro de `backend/`:
+
+| Serviço | Comando |
+|---|---|
+| `migrate` | `alembic upgrade head && python -m app.seed` |
+| `api` | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers` |
+| `worker` | a definir |
+
+Pontos para a infraestrutura:
+
+- A imagem `python:3.12-slim` não tem `curl`. O healthcheck pode usar `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"`.
+- O Nginx precisa repassar `/docs` e `/openapi.json` para o Swagger funcionar.
+- Os logs de acesso do Uvicorn saem sem data e hora; será preciso um `--log-config`.
+- O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`.
