@@ -1,0 +1,23 @@
+# Segredos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Resultados do k6
+tests-carga/resultados/
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
