@@ -39,6 +39,13 @@ class PacienteJaExiste(ErroDominio):
         self.paciente_id = paciente_id
 
 
+class CredenciaisInvalidas(ErroDominio):
+    """E-mail ou senha errados (HTTP 401). A mensagem não diz qual dos dois."""
+
+    def __init__(self) -> None:
+        super().__init__("e-mail ou senha inválidos")
+
+
 class AlertaNaoEncontrado(ErroDominio):
     """HTTP 404."""
 

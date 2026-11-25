@@ -6,7 +6,7 @@ paths:
 
 # Estrutura do repositório
 
-A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `docker-compose.yml`, `backend/Dockerfile`, `reconhecer_alerta.py`, `consultas.py`, os routers de auth, pacientes e alertas, `adaptadores/entrada/worker/`, `simulador/`, `tests-carga/`, `dashboard/` e `infra/`.
+A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `docker-compose.yml`, `backend/Dockerfile`, `adaptadores/entrada/worker/`, `simulador/`, `tests-carga/`, `dashboard/` e `infra/`.
 
 ```
 /
@@ -29,6 +29,8 @@ A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `doc
 │   │   │   ├── registrar_leitura.py
 │   │   │   ├── processar_pendentes.py
 │   │   │   ├── reconhecer_alerta.py
+│   │   │   ├── autenticar.py       # login: confere e-mail e senha (bcrypt injetado)
+│   │   │   ├── cadastrar_paciente.py
 │   │   │   └── consultas.py        # listar pacientes, histórico, alertas
 │   │   ├── adaptadores/
 │   │   │   ├── entrada/
@@ -117,7 +119,7 @@ class ProcessarPendentes:
 - Validação de faixa (fc, spo2, temp) é regra de domínio e fica no `__post_init__` da entidade, de modo que uma `Leitura` inválida não chega a existir. O Pydantic do adaptador HTTP só valida tipo e formato.
 - A regra "`ts` no máximo 5 min no futuro" depende do relógio. Por isso fica em `Leitura.validar_horario(agora)`, e `RegistrarLeitura` recebe um `relogio: Callable[[], datetime]` no construtor. Assim o teste não precisa de mock de `datetime`. A regra não fica no `__post_init__` porque uma leitura antiga reenviada pelo buffer continua válida.
 - Erros de domínio (`PacienteNaoEncontrado`, `LeituraInvalida`) são exceções do domínio. O adaptador HTTP converte em 404/422 com um exception handler.
-- JWT, API key, bcrypt e CORS são preocupação do adaptador HTTP e **não** têm porta.
+- JWT, API key, bcrypt e CORS são preocupação do adaptador HTTP e **não** têm porta. O `Autenticar` recebe `verificar_senha(senha, hash | None) -> bool` no construtor (implementada em `seguranca.py`, ligada pelo `composicao.py`); o token é emitido pelo router de auth.
 - O `/health` não tem caso de uso. O `composicao.py` injeta na rota uma função `verificar_banco() -> bool`, implementada em `db.py`. A rota não importa o adaptador de saída.
 - O adaptador HTTP recebe do `composicao.py` um `Componentes` (dataclass em `http/deps.py`, guardado em `app.state`) com os casos de uso e o `verificar_banco`. Para adicionar um caso de uso a uma rota: campo novo em `Componentes`, uma função em `deps.py` e a montagem em `composicao.montar_componentes_http`.
 - O HTTP não importa SQLAlchemy. As exceções que significam "banco fora" (`OperationalError` e `TimeoutError` do pool) chegam por `criar_app(..., erros_indisponibilidade=...)` e viram 503.

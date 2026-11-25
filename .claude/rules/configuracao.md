@@ -11,7 +11,7 @@ paths:
 
 # Variáveis de ambiente
 
-Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES` e `TEST_DATABASE_URL`. As demais são de etapas ainda não implementadas.
+Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EXP_MINUTES`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES` e `TEST_DATABASE_URL`. As demais são de etapas ainda não implementadas.
 
 | Variável | Usada por | Exemplo |
 |---|---|---|
@@ -32,4 +32,4 @@ Nunca commitar `.env`. Manter o `.env.example` atualizado sempre que surgir uma 
 
 - Senha com caractere especial na `DATABASE_URL` precisa ir codificada (`@` → `%40`, `%` → `%25`). O `migrations/env.py` passa a URL direto ao SQLAlchemy, sem passar pelo `alembic.ini`, justamente para aceitar `%`.
 - `TEST_DATABASE_URL` aponta para um banco **descartável**: os testes apagam as tabelas. Nunca apontar para produção. Sem ela, os testes de integração são pulados (não falham).
-- Sem `SENSOR_API_KEY` a API não sobe (erro de configuração). Sem `DATABASE_URL`, nenhum serviço sobe.
+- Sem `SENSOR_API_KEY`, ou sem `JWT_SECRET` com pelo menos 32 caracteres, a API não sobe (erro de configuração). Sem `DATABASE_URL`, nenhum serviço sobe.

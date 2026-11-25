@@ -8,7 +8,7 @@ paths:
 
 # Testes
 
-Comandos para rodar: seção "Comandos" do `CLAUDE.md`. Os casos de `ReconhecerAlerta`, login e rotas de consulta são da etapa 5; o workflow do GitHub Actions ainda não existe.
+Comandos para rodar: seção "Comandos" do `CLAUDE.md`. O workflow do GitHub Actions ainda não existe. A API dos testes HTTP unitários é montada por `tests/unit/apoio_http.py` (`montar_componentes`, `criar_app_fake`).
 
 ## Unitários (`tests/unit`), sem banco
 Usam os fakes em memória de `tests/fakes.py`, que implementam as portas. Rodam em milissegundos.

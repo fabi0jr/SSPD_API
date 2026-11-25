@@ -16,13 +16,23 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from app import config
 from app.adaptadores.entrada.http.deps import Componentes
 from app.adaptadores.entrada.http.main import criar_app
+from app.adaptadores.entrada.http.seguranca import ConfigJwt, verificar_senha
 from app.adaptadores.saida.postgres.db import (
     aguardar_banco,
     criar_engine,
     criar_fabrica_sessoes,
     verificar_banco,
 )
-from app.adaptadores.saida.postgres.repositorios import RepositorioLeiturasPg, RepositorioPacientesPg
+from app.adaptadores.saida.postgres.repositorios import (
+    RepositorioAlertasPg,
+    RepositorioLeiturasPg,
+    RepositorioPacientesPg,
+    RepositorioUsuariosPg,
+)
+from app.aplicacao.autenticar import Autenticar
+from app.aplicacao.cadastrar_paciente import CadastrarPaciente
+from app.aplicacao.consultas import Consultas
+from app.aplicacao.reconhecer_alerta import ReconhecerAlerta
 from app.aplicacao.registrar_leitura import RegistrarLeitura
 
 log = logging.getLogger("composicao")
@@ -44,12 +54,15 @@ def configurar_logs() -> None:
 
 def montar_componentes_http(engine: Engine) -> Componentes:
     sessoes = criar_fabrica_sessoes(engine)
+    pacientes = RepositorioPacientesPg(sessoes)
+    leituras = RepositorioLeiturasPg(sessoes)
+    alertas = RepositorioAlertasPg(sessoes)
     return Componentes(
-        registrar_leitura=RegistrarLeitura(
-            pacientes=RepositorioPacientesPg(sessoes),
-            leituras=RepositorioLeiturasPg(sessoes),
-            relogio=relogio_utc,
-        ),
+        registrar_leitura=RegistrarLeitura(pacientes, leituras, relogio=relogio_utc),
+        autenticar=Autenticar(RepositorioUsuariosPg(sessoes), verificar_senha),
+        cadastrar_paciente=CadastrarPaciente(pacientes),
+        consultas=Consultas(pacientes, leituras, alertas),
+        reconhecer_alerta=ReconhecerAlerta(alertas),
         verificar_banco=lambda: verificar_banco(engine),
     )
 
@@ -59,6 +72,13 @@ def criar_app_http() -> FastAPI:
     configurar_logs()
     # Variáveis obrigatórias primeiro: sem elas, falhar já no start é o certo.
     sensor_api_key = config.obrigatoria("SENSOR_API_KEY")
+    try:
+        jwt = ConfigJwt(
+            segredo=config.obrigatoria("JWT_SECRET"),
+            expiracao_minutos=config.inteiro("JWT_EXP_MINUTES", 60),
+        )
+    except ValueError as erro:  # segredo curto ou expiração inválida
+        raise config.ConfiguracaoAusente(str(erro)) from None
     engine = criar_engine(config.database_url())
 
     try:
@@ -71,6 +91,7 @@ def criar_app_http() -> FastAPI:
     return criar_app(
         montar_componentes_http(engine),
         sensor_api_key=sensor_api_key,
+        jwt=jwt,
         cors_origins=config.lista("CORS_ORIGINS"),
         ao_encerrar=engine.dispose,
         # Conexão recusada/caída e pool esgotado: o banco está fora ou sobrecarregado.

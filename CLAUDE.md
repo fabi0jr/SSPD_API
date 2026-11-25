@@ -82,7 +82,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 - Remote: `SSDP_API` → `https://github.com/fabi0jr/SSPD_API.git`. O terminal do Claude Code não tem credencial do GitHub: o push é feito por Gerson no VS Code
 - **Nunca commitar `backend/.venv`** nem usar "adicionar tudo" sem conferir o `git status`: um `.venv` commitado faz o git apagar o venv local de quem troca de branch (no commit `e3af254` o domínio também foi apagado; restaurado no PR #2)
 - Swagger em `/docs`. Manter os schemas com `examples`, porque o dashboard usa o Swagger como contrato
-- Ao terminar uma etapa, atualizar [README.md](README.md) e [docs/backend.md](docs/backend.md)
+- Ao terminar uma etapa, atualizar [README.md](README.md) e [docs/backend.md](docs/backend.md). Se a mudança afetar o front ou a infra (rota, campo, status, variável, comando, porta, healthcheck), atualizar também [docs/integracao-dashboard.md](docs/integracao-dashboard.md) ou [docs/integracao-infra.md](docs/integracao-infra.md) no mesmo PR
 
 ## Segurança (parte do backend)
 
@@ -102,11 +102,11 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 | 2 | Fakes + `RegistrarLeitura` e `ProcessarPendentes` | ✅ na `dev` (PR #1) |
 | 3 | Adaptador Postgres, migration, fila, seed e testes de integração | ✅ na `dev` (PR #3) |
 | 4 | `composicao.py` + HTTP: `/health` e `POST /leituras` com API key | ✅ na `dev` (PR #5) |
-| 5 | Login + JWT, rotas GET de pacientes, leituras e alertas, `PATCH` de alertas (consultas e `ReconhecerAlerta`) | a fazer |
+| 5 | Login + JWT, rotas GET de pacientes, leituras e alertas, `PATCH` de alertas (consultas e `ReconhecerAlerta`) | ✅ branch `feat/auth-consultas` (aguardando PR) |
 | 6 | Adaptador de entrada do worker (loop, logs, SIGTERM) | a fazer |
 | 7 | Dockerfile do backend (uma imagem para api, worker e migrate) e do simulador; ajustes no simulador | a fazer |
 | 8 | Script k6 | a fazer |
-| 9 | Textos do relatório em `docs/backend.md`: arquitetura (diagrama e regra de dependência), modelagem, regras de alerta, tolerância a falhas e segurança | parcial (cobre 1 a 4), branch `docs/readme` |
+| 9 | Textos do relatório em `docs/backend.md`: arquitetura (diagrama e regra de dependência), modelagem, regras de alerta, tolerância a falhas e segurança | parcial (cobre 1 a 5) |
 
 ## Fora de escopo (não fazer, a menos que sobre tempo)
 

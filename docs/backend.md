@@ -1,6 +1,6 @@
 # Documentação técnica do backend
 
-Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md).
+Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md). Os protocolos com as outras partes estão em [integracao-dashboard.md](integracao-dashboard.md) e [integracao-infra.md](integracao-infra.md).
 
 ## Sumário
 
@@ -18,7 +18,7 @@ Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece
 
 ## 1. Escopo atual
 
-Em execução, o sistema hoje tem a API e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`).
+Em execução, o sistema hoje tem a API e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
 As regras de alerta, o caso de uso que as aplica e a fila no PostgreSQL já estão implementados e testados, mas **não há um processo de worker que os execute**. Por isso nenhum alerta é gerado em execução.
 
@@ -53,10 +53,10 @@ As portas são `typing.Protocol` definidos em [portas.py](../backend/app/dominio
 
 | Porta | Responsabilidade | Usada hoje pela API |
 |---|---|---|
-| `RepositorioPacientes` | consultar, listar e criar pacientes | sim (`existe`) |
-| `RepositorioLeituras` | gravar leituras e consultar histórico | sim (`salvar_se_nova`) |
-| `RepositorioAlertas` | listar, obter e atualizar alertas | não |
-| `RepositorioUsuarios` | buscar usuário por e-mail | não |
+| `RepositorioPacientes` | consultar, listar e criar pacientes | sim |
+| `RepositorioLeituras` | gravar leituras e consultar histórico | sim |
+| `RepositorioAlertas` | listar, obter e atualizar alertas | sim |
+| `RepositorioUsuarios` | buscar usuário por e-mail | sim (login) |
 | `FilaPendentes` e `LotePendente` | reservar e processar leituras pendentes | não (será usada pelo worker) |
 
 ### 2.3 Composição
@@ -106,6 +106,7 @@ Uma mesma leitura pode gerar mais de um alerta. Os limites são uma simplificaç
 | `LeituraInvalida`, `PacienteInvalido` | 422 |
 | `PacienteNaoEncontrado`, `AlertaNaoEncontrado` | 404 |
 | `PacienteJaExiste` | 409 |
+| `CredenciaisInvalidas` | 401 |
 
 ## 4. Casos de uso
 
@@ -128,6 +129,22 @@ Uma mesma leitura pode gerar mais de um alerta. Os limites são uma simplificaç
 5. depois do commit, devolve `ResultadoCiclo` (processadas, alertas criados e tamanho do backlog).
 
 Se algo falhar no meio, a transação é desfeita e o lote é processado no ciclo seguinte.
+
+### 4.3 `Autenticar`
+
+[autenticar.py](../backend/app/aplicacao/autenticar.py) busca o usuário pelo e-mail e confere a senha com uma função recebida no construtor (o bcrypt fica no adaptador HTTP, em [seguranca.py](../backend/app/adaptadores/entrada/http/seguranca.py)). Se o e-mail não existir, a senha é conferida mesmo assim contra um hash fictício, para o tempo de resposta não revelar quais e-mails estão cadastrados. E-mail inexistente e senha errada levantam o mesmo `CredenciaisInvalidas`.
+
+### 4.4 `CadastrarPaciente`
+
+[cadastrar_paciente.py](../backend/app/aplicacao/cadastrar_paciente.py) grava o paciente (já validado pela entidade) e devolve o registro gravado. Id repetido levanta `PacienteJaExiste`.
+
+### 4.5 `Consultas`
+
+[consultas.py](../backend/app/aplicacao/consultas.py) reúne as leituras do dashboard: lista de pacientes com resumo, última leitura, histórico e alertas. Para paciente inexistente, a última leitura e o histórico levantam `PacienteNaoEncontrado` (404) em vez de devolver vazio. O limite é cortado em 1000.
+
+### 4.6 `ReconhecerAlerta`
+
+[reconhecer_alerta.py](../backend/app/aplicacao/reconhecer_alerta.py) muda o status do alerta para `reconhecido`. É idempotente: reconhecer de novo não grava outra vez nem dá erro. Alerta inexistente levanta `AlertaNaoEncontrado`. Como o índice único dos alertas só vale para `aberto`, depois do reconhecimento uma nova leitura alterada do mesmo tipo volta a gerar alerta.
 
 ## 5. Fila de leituras pendentes
 
@@ -261,17 +278,38 @@ Notas:
 - A chave é conferida antes da validação dos campos: sem chave, um corpo com campo inválido responde 401. Um JSON malformado responde 422 mesmo sem chave.
 - Nos 422 de formato (gerados pelo próprio FastAPI), o campo `type` varia conforme o erro.
 
-### 7.3 Rotas pendentes
+### 7.3 `POST /auth/login`
 
-| Método | Rota | Descrição |
+Corpo `{"email": "...", "senha": "..."}`. Responde 200 com `{"access_token": "<jwt>", "token_type": "bearer"}`.
+
+| Status | Quando | Corpo |
 |---|---|---|
-| POST | `/auth/login` | login que devolve um token JWT |
-| GET | `/pacientes` | pacientes com última leitura e alertas abertos |
-| POST | `/pacientes` | cadastro de paciente |
-| GET | `/pacientes/{id}/ultima` | última leitura |
-| GET | `/pacientes/{id}/leituras` | histórico com filtros `desde`, `ate` e `limit` |
-| GET | `/alertas` | lista de alertas |
-| PATCH | `/alertas/{id}` | reconhecimento de alerta |
+| 200 | credenciais corretas | token |
+| 401 | e-mail inexistente ou senha errada | `{"detail":"e-mail ou senha inválidos"}` |
+| 422 | campo faltando ou vazio | formato padrão do FastAPI |
+
+O token é um JWT HS256 assinado com `JWT_SECRET`, com `sub` (e-mail), `iat` e `exp` (`JWT_EXP_MINUTES`, padrão 60). A API não guarda sessão: qualquer réplica valida o token sozinha.
+
+### 7.4 Rotas do dashboard
+
+Todas exigem `Authorization: Bearer <access_token>`. Sem token, com token expirado, com assinatura errada, com `alg: none` ou com a API key dos sensores no lugar, respondem 401 `{"detail":"token inválido ou ausente"}` com `WWW-Authenticate: Bearer`. Como na API key, o token é conferido antes da validação do corpo.
+
+| Método | Rota | Respostas |
+|---|---|---|
+| GET | `/pacientes` | 200: lista ordenada por id, cada item com `ultima_leitura` (ou `null`) e `alertas_abertos` |
+| POST | `/pacientes` | 201: paciente criado; 409: id repetido; 422: campo vazio ou longo demais |
+| GET | `/pacientes/{id}/ultima` | 200: leitura, ou `null` se o paciente ainda não tem leituras; 404: paciente inexistente |
+| GET | `/pacientes/{id}/leituras` | 200: leituras por `ts` decrescente; 404: paciente inexistente; 422: parâmetro inválido |
+| GET | `/alertas` | 200: alertas por `criado_em` decrescente; 422: `status` ou `limit` inválido |
+| PATCH | `/alertas/{id}` | 200: alerta reconhecido (também na repetição); 404: alerta inexistente; 422: status diferente de `reconhecido` |
+
+Parâmetros:
+
+- `GET /pacientes/{id}/leituras`: `desde` e `ate` (ISO 8601 **com** fuso, inclusivos) e `limit` (padrão 100, de 1 a 1000).
+- `GET /alertas`: `status` (`aberto` ou `reconhecido`; sem ele, vêm os dois), `paciente_id` e `limit` (padrão 100, de 1 a 1000).
+- `PATCH /alertas/{id}`: corpo `{"status": "reconhecido"}`. Reabrir não é permitido.
+
+Os timestamps de saída (`ts`, `recebido_em`, `criado_em`) vêm sempre em UTC com `Z`, qualquer que seja o fuso enviado pelo sensor. A leitura de saída inclui `recebido_em` (a diferença para `ts` é a latência ponta a ponta) e `processada`. Os 503 e 500 seguem o mesmo formato do `POST /leituras`.
 
 ## 8. Tolerância a falhas
 
@@ -311,12 +349,14 @@ Esses testes ainda **não foram executados** no ambiente completo. O ensaio parc
 |---|---|
 | API key para sensores, comparada em tempo constante | ✅ implementado |
 | Validação de tipo e formato (Pydantic) e de faixas (domínio) | ✅ implementado |
-| CORS restrito a `CORS_ORIGINS` | ✅ implementado |
+| CORS restrito a `CORS_ORIGINS`; até as respostas 500 e 503 levam os headers de CORS, e o `Retry-After` é exposto | ✅ implementado |
 | Segredos somente em variáveis de ambiente; `.env` no `.gitignore` | ✅ implementado |
 | Respostas sem stack trace nem mensagem de exceção | ✅ implementado |
 | Senha do administrador armazenada com bcrypt | ✅ implementado |
 | Dados de pacientes fictícios (LGPD, art. 5º, II, e art. 11) | ✅ adotado |
-| Login com JWT para o dashboard | ⬜ pendente |
+| Login com JWT (HS256) para o dashboard; algoritmo fixo na validação (bloqueia `alg: none`); `exp` obrigatório | ✅ implementado |
+| `JWT_SECRET` com no mínimo 32 caracteres, senão a API não sobe | ✅ implementado |
+| Mesma resposta e tempo parecido para e-mail inexistente e senha errada | ✅ implementado |
 | Container com usuário sem privilégios | ⬜ pendente (Dockerfile) |
 | HTTPS, firewall, SSH e limite de requisições | ⬜ pendente (infraestrutura) |
 
@@ -326,8 +366,8 @@ Esses testes ainda **não foram executados** no ambiente completo. O ensaio parc
 
 | Conjunto | Banco | O que cobre |
 |---|---|---|
-| `tests/unit` (109 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP e regra de dependência |
-| `tests/integracao` (31 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência e rotas HTTP |
+| `tests/unit` (209 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos) e regra de dependência |
+| `tests/integracao` (40 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência e rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) |
 
 Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
 
@@ -337,9 +377,9 @@ Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
 
 | Execução | Resultado |
 |---|---|
-| Todos os testes | 140 passaram |
-| Somente unitários | 109 passaram |
-| Sem `TEST_DATABASE_URL` | 109 passaram e 31 foram pulados |
+| Todos os testes | 249 passaram |
+| Somente unitários | 209 passaram |
+| Sem `TEST_DATABASE_URL` | 209 passaram e 40 foram pulados |
 
 ### 10.3 Ensaio manual da API
 
@@ -359,6 +399,17 @@ Execução de 25/11/2026 sobre uma cópia limpa do código, com **uma** instânc
 | Reenvio após a volta | 200, sem duplicar |
 | Contagem final | 1 leitura gravada, pendente de processamento |
 
+Ensaio das rotas do dashboard (25/11/2026, uvicorn com uma instância, banco limpo e seed com 3 pacientes):
+
+| Passo | Resultado observado |
+|---|---|
+| Login com o admin do seed | 200 com token |
+| Login com senha errada | 401 |
+| `GET /alertas` sem token | 401 |
+| `GET /pacientes` | 3 pacientes; P001 com a última leitura e 1 alerta aberto, os outros com `null` e 0 |
+| `GET /alertas?status=aberto` | 1 alerta `SPO2_BAIXA` |
+| `PATCH /alertas/1` | 200, `status: reconhecido` |
+
 ### 10.4 Desempenho
 
 ⬜ Pendente. Previsto: k6 com 10, 100 e 500 sensores virtuais, medindo latência p50, p95 e p99, requisições por segundo e taxa de erro.
@@ -367,10 +418,9 @@ Execução de 25/11/2026 sobre uma cópia limpa do código, com **uma** instânc
 
 Backend, na ordem prevista:
 
-1. login com JWT, rotas de consulta e reconhecimento de alertas;
-2. processo do worker (ciclo periódico, logs e encerramento por SIGTERM);
-3. Dockerfile do backend e do simulador;
-4. script de carga k6.
+1. processo do worker (ciclo periódico, logs e encerramento por SIGTERM);
+2. Dockerfile do backend e do simulador;
+3. script de carga k6.
 
 Comandos que o Docker Compose deverá usar, executados dentro de `backend/`:
 

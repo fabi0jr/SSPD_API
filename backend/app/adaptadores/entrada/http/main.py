@@ -14,12 +14,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.adaptadores.entrada.http.deps import Componentes
-from app.adaptadores.entrada.http.routers import health, leituras
+from app.adaptadores.entrada.http.routers import alertas, auth, health, leituras, pacientes
+from app.adaptadores.entrada.http.seguranca import ConfigJwt
 from app.dominio.erros import (
     AlertaNaoEncontrado,
+    CredenciaisInvalidas,
     ErroDominio,
     LeituraInvalida,
     PacienteInvalido,
@@ -44,6 +46,7 @@ STATUS_POR_ERRO: dict[type[ErroDominio], int] = {
     PacienteNaoEncontrado: status.HTTP_404_NOT_FOUND,
     AlertaNaoEncontrado: status.HTTP_404_NOT_FOUND,
     PacienteJaExiste: status.HTTP_409_CONFLICT,
+    CredenciaisInvalidas: status.HTTP_401_UNAUTHORIZED,
 }
 
 
@@ -76,19 +79,28 @@ def _resposta_indisponivel(request: Request, erro: Exception) -> JSONResponse:
     )
 
 
-def _resposta_erro_interno(request: Request, erro: Exception) -> JSONResponse:
-    # Bug de verdade. O uvicorn já registra o traceback completo; a resposta
-    # nunca leva stack trace nem a mensagem da exceção.
-    log.error("erro não tratado em %s %s (%s)", request.method, request.url.path, type(erro).__name__)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "erro interno"},
-    )
+async def _capturar_erro_interno(request: Request, call_next) -> Response:
+    """Bug de verdade vira 500 {"detail": "erro interno"}.
+
+    É um middleware, e não um exception handler de Exception, porque o Starlette
+    responde esse handler fora do CORS: o 500 sairia sem Access-Control-Allow-Origin
+    e o navegador do dashboard veria só um erro de rede. O traceback vai para o
+    log; a resposta nunca leva stack trace nem a mensagem da exceção.
+    """
+    try:
+        return await call_next(request)
+    except Exception as erro:
+        log.exception("erro não tratado em %s %s (%s)", request.method, request.url.path, type(erro).__name__)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "erro interno"},
+        )
 
 
 def criar_app(
     componentes: Componentes,
     sensor_api_key: str,
+    jwt: ConfigJwt,
     cors_origins: list[str],
     ao_encerrar: Callable[[], None] | None = None,
     erros_indisponibilidade: tuple[type[Exception], ...] = (),
@@ -111,18 +123,26 @@ def criar_app(
     )
     app.state.componentes = componentes
     app.state.sensor_api_key = sensor_api_key
+    app.state.jwt = jwt
 
+    # Ordem importa: o último middleware adicionado é o mais externo. O CORS
+    # fica por fora para que até o 500 leve os headers de CORS.
+    app.middleware("http")(_capturar_erro_interno)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_methods=["GET", "POST", "PATCH"],
         allow_headers=["Authorization", "Content-Type"],
+        # Sem isto o navegador esconde o Retry-After do 503 de outra origem.
+        expose_headers=["Retry-After"],
     )
     app.add_exception_handler(ErroDominio, _resposta_erro_dominio)
     for tipo in erros_indisponibilidade:
         app.add_exception_handler(tipo, _resposta_indisponivel)
-    app.add_exception_handler(Exception, _resposta_erro_interno)
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(leituras.router)
+    app.include_router(pacientes.router)
+    app.include_router(alertas.router)
     return app

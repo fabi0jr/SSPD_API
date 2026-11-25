@@ -4,14 +4,14 @@ Mapa técnico condensado, gerado em 25/11/2026 sobre a branch `docs/readme` (com
 
 ## Overview
 
-Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): sensores enviam sinais vitais para uma API, e um worker gera alertas. Hoje rodam a API (`GET /health`, `POST /leituras`) e o PostgreSQL. Domínio, casos de uso e fila estão prontos, mas **nenhum processo de worker os executa**. Instruções e regras do projeto: [CLAUDE.md](../CLAUDE.md) e `.claude/rules/`.
+Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): sensores enviam sinais vitais para uma API, e um worker gera alertas. Hoje rodam a API (`/health`, `POST /leituras`, login JWT e rotas do dashboard) e o PostgreSQL. Domínio, casos de uso e fila estão prontos, mas **nenhum processo de worker os executa**. Instruções e regras do projeto: [CLAUDE.md](../CLAUDE.md) e `.claude/rules/`.
 
 ## Repository Structure
 
 | Caminho | Conteúdo |
 |---|---|
 | `backend/app/dominio/` | `entidades.py`, `regras.py`, `erros.py`, `portas.py` |
-| `backend/app/aplicacao/` | `registrar_leitura.py`, `processar_pendentes.py` |
+| `backend/app/aplicacao/` | `registrar_leitura.py`, `processar_pendentes.py`, `autenticar.py`, `cadastrar_paciente.py`, `consultas.py`, `reconhecer_alerta.py` |
 | `backend/app/adaptadores/entrada/http/` | FastAPI: `main.py`, `deps.py`, `schemas.py`, `seguranca.py`, `routers/` |
 | `backend/app/adaptadores/saida/postgres/` | `db.py`, `models.py`, `mapeamento.py`, `repositorios.py`, `fila_pendentes.py` |
 | `backend/app/` | `composicao.py`, `config.py`, `seed.py` |
@@ -25,7 +25,7 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 
 Python 3.12.3 no ambiente local. As dependências usam faixas em `backend/requirements*.txt`, sem arquivo de lock. Versões instaladas em `backend/.venv` nesta data:
 
-FastAPI 0.165.0 (Starlette 1.10.0), Uvicorn 0.54.0, SQLAlchemy 2.1.9, psycopg 3.3.9, Alembic 1.20.1, Pydantic 2.14.4, bcrypt 5.0.0, PyJWT 2.15.1 (declarado, ainda não importado), pytest 8.4.2, httpx2 2.16.2. Banco: PostgreSQL 16.
+FastAPI 0.165.0 (Starlette 1.10.0), Uvicorn 0.54.0, SQLAlchemy 2.1.9, psycopg 3.3.9, Alembic 1.20.1, Pydantic 2.14.4, bcrypt 5.0.0, PyJWT 2.15.1, pytest 8.4.2, httpx2 2.16.2. Banco: PostgreSQL 16.
 
 ## Architecture
 
@@ -52,14 +52,15 @@ Tabelas `pacientes`, `leituras`, `alertas` e `usuarios`. `models.py` e `migratio
 | `GET /health` | nenhuma | implementada |
 | `POST /leituras` | `X-API-Key` | implementada, idempotente |
 | `/docs`, `/redoc`, `/openapi.json` | nenhuma | expostas pelo FastAPI |
-| login, pacientes, alertas | JWT | planejadas |
+| `POST /auth/login` | nenhuma | implementada |
+| `/pacientes`, `/pacientes/{id}/ultima`, `/pacientes/{id}/leituras`, `/alertas`, `PATCH /alertas/{id}` | Bearer JWT | implementadas |
 
 Contrato: [.claude/rules/api-http.md](../.claude/rules/api-http.md). Nenhuma integração com serviço externo observada no código.
 
 ## Authentication and Authorization
 
 - Sensores: API key única (`SENSOR_API_KEY`), comparada com `hmac.compare_digest`.
-- Usuários: o seed cria o administrador com senha em bcrypt. Login e JWT são **planejados**.
+- Usuários: o seed cria o administrador com senha em bcrypt. `POST /auth/login` emite JWT HS256 (`JWT_SECRET` ≥ 32 caracteres, `JWT_EXP_MINUTES`); as rotas do dashboard exigem `Authorization: Bearer`.
 - Perfis ou RBAC: fora de escopo.
 
 ## Security Context
@@ -69,7 +70,7 @@ Contrato: [.claude/rules/api-http.md](../.claude/rules/api-http.md). Nenhuma int
 - **Entrada não confiável:** corpo do `POST /leituras` (tipo e formato no Pydantic, faixas no domínio). Não há upload nem download de arquivos.
 - **Controles presentes:** CORS por `CORS_ORIGINS`; respostas de erro sem stack trace; 503 para banco fora; a API não sobe sem `SENSOR_API_KEY`.
 - **Logging:** uma linha por evento em stdout. Não há log de auditoria próprio.
-- **Pendentes:** JWT, container não-root, HTTPS, firewall e rate limit (os três últimos são da infra).
+- **Pendentes:** container não-root, HTTPS, firewall e rate limit (os três últimos são da infra).
 
 Isto é um mapeamento, não uma auditoria.
 
@@ -79,7 +80,7 @@ Ver "Convenções" no [CLAUDE.md](../CLAUDE.md): português, commits pequenos, b
 
 ## Testing
 
-Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **140 passaram** com `TEST_DATABASE_URL`; sem ela, 109 passaram e 31 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
+Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **249 passaram** com `TEST_DATABASE_URL`; sem ela, 209 passaram e 40 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
 
 ## Critical Areas
 
@@ -100,6 +101,7 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **140 passaram*
 
 - [README.md](../README.md): estado atual e execução local
 - [docs/backend.md](../docs/backend.md): arquitetura, domínio, banco, API, falhas, segurança e resultados
+- [docs/integracao-dashboard.md](../docs/integracao-dashboard.md) e [docs/integracao-infra.md](../docs/integracao-infra.md): protocolos com as outras partes da equipe
 - [.env.example](../.env.example): variáveis de ambiente
 - [.claude/rules/](../.claude/rules/): regras por área
 
@@ -108,7 +110,6 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **140 passaram*
 | Onde | Divergência |
 |---|---|
 | `backend/pyproject.toml` | o marcador `integracao` cita `DATABASE_URL`; os testes usam `TEST_DATABASE_URL` |
-| `adaptadores/entrada/http/main.py` | a descrição do Swagger cita `POST /auth/login`, que ainda não existe |
 | `adaptadores/saida/postgres/db.py` | a docstring de `aguardar_banco` cita o worker (inexistente) e diz que o container sai após o timeout; a API captura o erro e sobe em modo degradado |
 | 5 docstrings em `backend/` | citam "CLAUDE.md, seção N"; a tabela "Onde está cada detalhe" do CLAUDE.md faz a correspondência |
 

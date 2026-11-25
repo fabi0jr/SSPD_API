@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 25/11/2026. O projeto está em desenvolvimento: hoje é possível **receber e gravar leituras** pela API. Os alertas ainda não são gerados em execução.
+Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas). Os alertas ainda não são gerados em execução, porque falta o processo do worker.
 
 | Parte | Situação |
 |---|---|
@@ -17,7 +17,7 @@ Situação em 25/11/2026. O projeto está em desenvolvimento: hoje é possível 
 | Casos de uso `RegistrarLeitura` e `ProcessarPendentes` | ✅ prontos |
 | Adaptador PostgreSQL: repositórios, fila de pendentes, migration e seed | ✅ pronto |
 | API: `GET /health` e `POST /leituras` | ✅ pronto |
-| Login (JWT), consultas de pacientes, leituras e alertas | ⬜ a fazer |
+| Login (JWT), consultas de pacientes, leituras e alertas, reconhecimento de alertas | ✅ pronto |
 | Processo do worker de alertas (o caso de uso já existe) | ⬜ a fazer |
 | Simulador de sensores | ⬜ a fazer |
 | Dockerfile e Docker Compose | ⬜ a fazer |
@@ -41,7 +41,7 @@ O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalh
 
 ## Tecnologias
 
-Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PostgreSQL 16 e pytest.
+Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16 e pytest.
 
 ## Como rodar localmente
 
@@ -73,6 +73,7 @@ python3 -m venv .venv
 
 export DATABASE_URL=postgresql+psycopg://monitor:dev@localhost:55433/monitor
 export SENSOR_API_KEY=chave-local
+export JWT_SECRET=segredo-local-com-pelo-menos-32-caracteres
 export CORS_ORIGINS=http://localhost:5173
 export ADMIN_EMAIL=admin@example.com
 export ADMIN_PASSWORD=admin-local
@@ -106,6 +107,19 @@ curl -i -X POST http://localhost:8000/leituras \
 
 A primeira chamada responde `201` com `"nova": true`. Repetir o mesmo `curl` responde `200` com `"nova": false`, sem gravar a leitura de novo.
 
+Rotas do dashboard, com o token do login:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","senha":"admin-local"}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/pacientes
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/pacientes/P001/leituras?limit=5"
+curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/alertas?status=aberto"
+```
+
+No Swagger, use o botão **Authorize** e cole só o `access_token`.
+
 Para encerrar: `Ctrl+C` na API e `docker stop sspd-pg-dev` no banco.
 
 ## API disponível
@@ -114,8 +128,15 @@ Para encerrar: `Ctrl+C` na API e `docker stop sspd-pg-dev` no banco.
 |---|---|---|---|
 | GET | `/health` | nenhuma | Verifica a API e o banco |
 | POST | `/leituras` | header `X-API-Key` | Registra uma leitura (idempotente) |
+| POST | `/auth/login` | nenhuma | Devolve um token JWT |
+| GET | `/pacientes` | JWT | Pacientes com a última leitura e os alertas abertos |
+| POST | `/pacientes` | JWT | Cadastra um paciente |
+| GET | `/pacientes/{id}/ultima` | JWT | Última leitura (`null` se ainda não houver) |
+| GET | `/pacientes/{id}/leituras` | JWT | Histórico, com `desde`, `ate` e `limit` |
+| GET | `/alertas` | JWT | Alertas, com `status`, `paciente_id` e `limit` |
+| PATCH | `/alertas/{id}` | JWT | Reconhece um alerta (idempotente) |
 
-O contrato completo, com validações e códigos de erro, está em [docs/backend.md](docs/backend.md#7-api-http).
+O contrato completo, com validações e códigos de erro, está em [docs/backend.md](docs/backend.md#7-api-http). Protocolos de integração: [dashboard](docs/integracao-dashboard.md) e [infra](docs/integracao-infra.md).
 
 ## Variáveis de ambiente
 
@@ -123,12 +144,14 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 |---|---|---|---|
 | `DATABASE_URL` | API, migrations, seed | sim | Conexão com o PostgreSQL. Caracteres especiais na senha vão codificados (`@` → `%40`) |
 | `SENSOR_API_KEY` | API | sim | Chave exigida dos sensores |
+| `JWT_SECRET` | API | sim | Segredo que assina os tokens; no mínimo 32 caracteres |
+| `JWT_EXP_MINUTES` | API | não (padrão `60`) | Validade do token, em minutos |
 | `CORS_ORIGINS` | API | não | Origens liberadas, separadas por vírgula |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | seed | sim | Usuário administrador criado pelo seed |
 | `SEED_PACIENTES` | seed | não (padrão `50`) | Quantidade de pacientes fictícios |
 | `TEST_DATABASE_URL` | testes de integração | não | Banco **descartável**: os testes apagam as tabelas |
 
-O [.env.example](.env.example) também lista variáveis de partes ainda não implementadas (`JWT_*`, `WORKER_*` e as do simulador). Nunca commite o arquivo `.env`.
+O [.env.example](.env.example) também lista variáveis de partes ainda não implementadas (`WORKER_*` e as do simulador). Nunca commite o arquivo `.env`.
 
 ## Testes
 
@@ -147,7 +170,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 .venv/bin/python -m pytest -q
 ```
 
-Último resultado (25/11/2026): **140 testes passando**, sendo 109 unitários e 31 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
+Último resultado (25/11/2026): **249 testes passando**, sendo 209 unitários e 40 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
@@ -167,6 +190,7 @@ backend/
 ├── migrations/         # Alembic
 └── tests/              # unit/ e integracao/
 docs/backend.md         # documentação técnica do backend
+docs/integracao-*.md    # protocolos com o dashboard e com a infra
 ```
 
 ## Equipe e contribuição
