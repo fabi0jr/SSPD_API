@@ -20,7 +20,10 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 | `backend/tests/` | `unit/`, `integracao/`, `fakes.py` |
 | `docs/backend.md` | documentação técnica do backend |
 
-**Planejado, ainda ausente:** `simulador/`, `tests-carga/`, `dashboard/`, `infra/`, `.github/workflows/`, `docker-compose.yml`, Dockerfiles.
+| `backend/Dockerfile`, `backend/uvicorn-log.json` | imagem única de api, worker e migrate; formato dos logs do uvicorn |
+| `simulador/` | `simulador.py` (só stdlib), `tests/`, `Dockerfile` |
+
+**Planejado, ainda ausente:** `tests-carga/`, `dashboard/`, `infra/`, `.github/workflows/`, `docker-compose.yml`.
 
 ## Technology Stack
 
@@ -40,6 +43,7 @@ Pontos de entrada existentes (dentro de `backend/`):
 | Worker | `python -m app.composicao worker` |
 | Migrations | `alembic upgrade head` |
 | Seed | `python -m app.seed` |
+| Simulador | `python simulador/simulador.py` (na raiz) |
 
 Sem broker: a tabela `leituras` (`processada = false`) é a fila, consumida com `FOR UPDATE SKIP LOCKED`.
 
@@ -72,7 +76,8 @@ Contrato: [.claude/rules/api-http.md](../.claude/rules/api-http.md). Nenhuma int
 - **Entrada não confiável:** corpo do `POST /leituras` (tipo e formato no Pydantic, faixas no domínio). Não há upload nem download de arquivos.
 - **Controles presentes:** CORS por `CORS_ORIGINS`; respostas de erro sem stack trace; 503 para banco fora; a API não sobe sem `SENSOR_API_KEY`.
 - **Logging:** uma linha por evento em stdout. Não há log de auditoria próprio.
-- **Pendentes:** container não-root, HTTPS, firewall e rate limit (os três últimos são da infra).
+- **Containers:** usuário não-root (`uid 10001`) nas duas imagens; `.dockerignore` deixa `.env`, `.venv` e testes de fora.
+- **Pendentes (infra):** HTTPS, firewall e rate limit.
 
 Isto é um mapeamento, não uma auditoria.
 
@@ -118,6 +123,5 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **270 passaram*
 ## Unknown / Needs Confirmation
 
 - O modelo ABNT do professor não está no repositório.
-- A versão inicial do simulador, citada como base, não está no repositório.
 - Nada sobre a VPS ou o deploy é verificável por este repositório.
 - Escolha entre k6 e Locust: a estrutura planejada cita k6.
