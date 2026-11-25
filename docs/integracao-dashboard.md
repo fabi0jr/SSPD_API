@@ -1,6 +1,6 @@
 # Protocolo de integração: dashboard ↔ API
 
-Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, etapa 6 do backend.
+Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, etapa 7 do backend.
 
 **Fonte da verdade:** o Swagger em `/docs` e o contrato OpenAPI em `/openapi.json`. Se este texto e o Swagger divergirem, vale o Swagger, e o backend precisa corrigir este arquivo. Os tipos TypeScript podem ser gerados do contrato, por exemplo com `npx openapi-typescript http://localhost:8000/openapi.json -o src/api/tipos.ts`.
 
@@ -171,6 +171,6 @@ O worker avalia as leituras a cada `WORKER_INTERVALO` segundos (padrão 2), ent�
 - Todas as rotas acima estão prontas (backend, etapa 5).
 - O worker de alertas está pronto (etapa 6). Para ver alertas no ambiente local, suba o worker como no [README](../README.md#6-iniciar-o-worker-de-alertas) e envie uma leitura alterada (por exemplo `"spo2": 85`): o alerta aparece em `GET /alertas` no ciclo seguinte, e a leitura passa a `processada: true`.
 
-- O simulador de sensores também é da etapa 7. Para ter leituras, use o `curl` do [README](../README.md#5-testar).
+- O simulador de sensores está pronto (etapa 7). Para ter leituras contínuas no ambiente local, rode-o como no [README](../README.md#7-iniciar-o-simulador-de-sensores): os pacientes com final 3 (P003, P013...) têm febre frequente e os com final 7 (P007...) têm SpO₂ baixa de vez em quando, então há alertas para mostrar. Leituras avulsas continuam possíveis com o `curl` do [README](../README.md#5-testar).
 
 Mudanças no contrato serão avisadas antes, e este arquivo será atualizado no mesmo PR.

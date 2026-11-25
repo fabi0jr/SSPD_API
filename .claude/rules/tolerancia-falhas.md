@@ -10,7 +10,7 @@ paths:
 
 # Tolerância a falhas (parte do backend)
 
-O item 2 (simulador) ainda não existe. O item 4 no worker é feito pelo próprio loop (ver abaixo).
+O item 4 no worker é feito pelo próprio loop (ver abaixo). O item 2 está em `.claude/rules/simulador.md`.
 
 1. **Idempotência** no `POST /leituras` (UUID gerado pelo sensor + `ON CONFLICT DO NOTHING`).
 2. **Buffer + retry no simulador**: quando a API está fora, as leituras ficam na fila local e são reenviadas depois.
@@ -29,6 +29,7 @@ Como foi implementado (e verificado em ensaio local com uvicorn real, duas répl
 - **Anti-spam com vários workers**: além do `SKIP LOCKED`, o índice único parcial impede dois alertas abertos iguais. Os alertas são inseridos em ordem fixa (paciente, tipo) para evitar deadlock. Efeito colateral aceito: numa disputa entre workers, o log de um deles pode contar 1 alerta a mais do que foi gravado.
 - **SIGTERM**: a API fecha o pool de conexões no shutdown (lifespan). O worker termina o ciclo em andamento e sai com código 0 (ensaio: 0,1 s).
 - **Worker com banco fora**: não usa `aguardar_banco`; cada ciclo que falha gera uma linha de WARNING e o loop tenta de novo no ciclo seguinte, sem prazo. Na volta, loga `banco disponível novamente`. No ensaio com `docker stop`/`start` no Postgres, isso aconteceu cerca de 1 s depois.
+- **Buffer do simulador**: ensaio com as imagens Docker (duas réplicas, `docker stop`/`start` na réplica usada por 15 s): buffer esvaziado no mesmo segundo da volta, `count(*) = count(DISTINCT id) = 275`, `perdidas=0`.
 - **Backlog depois de uma queda do worker**: lote cheio com pendentes restantes dispara o ciclo seguinte sem esperar o intervalo (ensaio: 1200 pendentes, lote 500, 3 ciclos seguidos).
 
 Cenários de teste de falha esperados (executados pelo amigo da infra, com explicação do Gerson):

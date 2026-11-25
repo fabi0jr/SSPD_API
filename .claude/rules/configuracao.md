@@ -11,7 +11,7 @@ paths:
 
 # Variáveis de ambiente
 
-Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EXP_MINUTES`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES`, `WORKER_INTERVALO`, `WORKER_LOTE` e `TEST_DATABASE_URL`. As demais são de etapas ainda não implementadas.
+Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EXP_MINUTES`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES`, `WORKER_INTERVALO`, `WORKER_LOTE` e `TEST_DATABASE_URL`, e, no simulador, `API_URL`, `SENSOR_API_KEY`, `N_PACIENTES` e `INTERVALO` (este aceita fração). O simulador lê o ambiente por conta própria (`ler_configuracao`), sem o `app/config.py`.
 
 | Variável | Usada por | Exemplo |
 |---|---|---|
@@ -25,7 +25,7 @@ Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EX
 | `WORKER_INTERVALO` | worker | `2` (segundos) |
 | `WORKER_LOTE` | worker | `500` |
 | `API_URL` | simulador | `http://nginx/leituras` |
-| `N_PACIENTES` / `INTERVALO` | simulador | `10` / `2` |
+| `N_PACIENTES` / `INTERVALO` | simulador | `10` / `2` (`N_PACIENTES` ≤ `SEED_PACIENTES`) |
 | `TEST_DATABASE_URL` | só testes de integração | `postgresql+psycopg://monitor:teste@localhost:55432/monitor_teste` |
 
 Nunca commitar `.env`. Manter o `.env.example` atualizado sempre que surgir uma variável nova.
