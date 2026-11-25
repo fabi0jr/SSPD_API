@@ -17,9 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.adaptadores.entrada.http.deps import Componentes
-from app.adaptadores.entrada.http.routers import health, leituras
+from app.adaptadores.entrada.http.routers import alertas, auth, health, leituras, pacientes
+from app.adaptadores.entrada.http.seguranca import ConfigJwt
 from app.dominio.erros import (
     AlertaNaoEncontrado,
+    CredenciaisInvalidas,
     ErroDominio,
     LeituraInvalida,
     PacienteInvalido,
@@ -44,6 +46,7 @@ STATUS_POR_ERRO: dict[type[ErroDominio], int] = {
     PacienteNaoEncontrado: status.HTTP_404_NOT_FOUND,
     AlertaNaoEncontrado: status.HTTP_404_NOT_FOUND,
     PacienteJaExiste: status.HTTP_409_CONFLICT,
+    CredenciaisInvalidas: status.HTTP_401_UNAUTHORIZED,
 }
 
 
@@ -89,6 +92,7 @@ def _resposta_erro_interno(request: Request, erro: Exception) -> JSONResponse:
 def criar_app(
     componentes: Componentes,
     sensor_api_key: str,
+    jwt: ConfigJwt,
     cors_origins: list[str],
     ao_encerrar: Callable[[], None] | None = None,
     erros_indisponibilidade: tuple[type[Exception], ...] = (),
@@ -111,6 +115,7 @@ def criar_app(
     )
     app.state.componentes = componentes
     app.state.sensor_api_key = sensor_api_key
+    app.state.jwt = jwt
 
     app.add_middleware(
         CORSMiddleware,
@@ -124,5 +129,8 @@ def criar_app(
     app.add_exception_handler(Exception, _resposta_erro_interno)
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(leituras.router)
+    app.include_router(pacientes.router)
+    app.include_router(alertas.router)
     return app

@@ -6,48 +6,20 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.adaptadores.entrada.http.deps import Componentes
-from app.adaptadores.entrada.http.main import criar_app
-from app.aplicacao.registrar_leitura import RegistrarLeitura
 from app.dominio.entidades import Paciente
-from tests.fakes import BancoFake, RelogioFake, RepositorioLeiturasFake, RepositorioPacientesFake
-
-AGORA = datetime(2026, 11, 25, 14, 0, tzinfo=timezone.utc)
-CHAVE = "chave-de-teste"
-ORIGEM_DASHBOARD = "https://dashboard.exemplo"
-
-
-class Saude:
-    """verificar_banco controlável pelo teste."""
-
-    def __init__(self) -> None:
-        self.no_ar = True
-
-    def __call__(self) -> bool:
-        return self.no_ar
+from tests.fakes import RepositorioPacientesFake
+from tests.unit.apoio_http import AGORA, CHAVE, ORIGEM_DASHBOARD, Saude, criar_app_fake, montar_componentes
 
 
 @pytest.fixture
-def banco() -> BancoFake:
-    banco = BancoFake()
+def banco(banco):
     RepositorioPacientesFake(banco).criar(Paciente(id="P001", nome="Paciente 1"))
     return banco
 
 
 @pytest.fixture
-def saude() -> Saude:
-    return Saude()
-
-
-@pytest.fixture
 def app(banco, saude):
-    componentes = Componentes(
-        registrar_leitura=RegistrarLeitura(
-            RepositorioPacientesFake(banco), RepositorioLeiturasFake(banco), RelogioFake(AGORA)
-        ),
-        verificar_banco=saude,
-    )
-    return criar_app(componentes, sensor_api_key=CHAVE, cors_origins=[ORIGEM_DASHBOARD])
+    return criar_app_fake(montar_componentes(banco, saude))
 
 
 @pytest.fixture
@@ -196,7 +168,7 @@ def test_erro_interno_nao_vaza_stack_trace(banco, saude):
         def executar(self, leitura):
             raise RuntimeError("senha=segredo no meio do erro")
 
-    app = criar_app(Componentes(Quebrado(), saude), sensor_api_key=CHAVE, cors_origins=[])
+    app = criar_app_fake(montar_componentes(banco, saude, registrar_leitura=Quebrado()))
     r = postar(TestClient(app, raise_server_exceptions=False), corpo())
     assert r.status_code == 500
     assert r.json() == {"detail": "erro interno"}
@@ -211,8 +183,8 @@ def test_banco_indisponivel_vira_503_com_retry_after(banco, saude):
         def executar(self, leitura):
             raise BancoFora("connection refused")
 
-    app = criar_app(
-        Componentes(Indisponivel(), saude), sensor_api_key=CHAVE, cors_origins=[],
+    app = criar_app_fake(
+        montar_componentes(banco, saude, registrar_leitura=Indisponivel()),
         erros_indisponibilidade=(BancoFora,),
     )
     r = postar(TestClient(app), corpo())  # sem raise_server_exceptions: não pode virar 500
