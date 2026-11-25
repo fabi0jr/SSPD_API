@@ -6,7 +6,7 @@ paths:
 
 # Estrutura do repositório
 
-A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `docker-compose.yml`, `backend/Dockerfile`, `adaptadores/entrada/worker/`, `simulador/`, `tests-carga/`, `dashboard/` e `infra/`.
+A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `docker-compose.yml`, `backend/Dockerfile`, `simulador/`, `tests-carga/`, `dashboard/` e `infra/`.
 
 ```
 /
@@ -50,7 +50,7 @@ A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `doc
 │   │   │           ├── repositorios.py
 │   │   │           └── fila_pendentes.py
 │   │   ├── config.py               # variáveis de ambiente
-│   │   ├── composicao.py           # monta adaptadores + casos de uso (DI manual); criar_app_http é o entrypoint do uvicorn
+│   │   ├── composicao.py           # monta adaptadores + casos de uso (DI manual); criar_app_http (uvicorn) e rodar_worker (python -m app.composicao worker)
 │   │   └── seed.py                 # cria usuário admin e pacientes fictícios (idempotente)
 │   └── tests/
 │       ├── unit/                   # domínio, aplicação e HTTP (test_http.py), com fakes em memória
