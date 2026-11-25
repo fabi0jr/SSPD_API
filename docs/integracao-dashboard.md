@@ -1,6 +1,6 @@
 # Protocolo de integração: dashboard ↔ API
 
-Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, etapa 5 do backend.
+Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, etapa 6 do backend.
 
 **Fonte da verdade:** o Swagger em `/docs` e o contrato OpenAPI em `/openapi.json`. Se este texto e o Swagger divergirem, vale o Swagger, e o backend precisa corrigir este arquivo. Os tipos TypeScript podem ser gerados do contrato, por exemplo com `npx openapi-typescript http://localhost:8000/openapi.json -o src/api/tipos.ts`.
 
@@ -169,12 +169,7 @@ O worker avalia as leituras a cada `WORKER_INTERVALO` segundos (padrão 2), ent�
 ## 6. Estado atual e testes locais
 
 - Todas as rotas acima estão prontas (backend, etapa 5).
-- **O processo do worker ainda não existe** (etapa 6): até lá, leituras chegam com `processada: false` e nenhum alerta é criado sozinho. Para testar a tela de alertas antes disso, insira um alerta à mão no banco local:
-
-  ```sql
-  INSERT INTO alertas (paciente_id, leitura_id, tipo, valor, severidade)
-  SELECT paciente_id, id, 'SPO2_BAIXA', spo2, 'ALTA' FROM leituras LIMIT 1;
-  ```
+- O worker de alertas está pronto (etapa 6). Para ver alertas no ambiente local, suba o worker como no [README](../README.md#6-iniciar-o-worker-de-alertas) e envie uma leitura alterada (por exemplo `"spo2": 85`): o alerta aparece em `GET /alertas` no ciclo seguinte, e a leitura passa a `processada: true`.
 
 - O simulador de sensores também é da etapa 7. Para ter leituras, use o `curl` do [README](../README.md#5-testar).
 

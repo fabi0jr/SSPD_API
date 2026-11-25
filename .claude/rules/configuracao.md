@@ -11,7 +11,7 @@ paths:
 
 # Variáveis de ambiente
 
-Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EXP_MINUTES`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES` e `TEST_DATABASE_URL`. As demais são de etapas ainda não implementadas.
+Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EXP_MINUTES`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `SEED_PACIENTES`, `WORKER_INTERVALO`, `WORKER_LOTE` e `TEST_DATABASE_URL`. As demais são de etapas ainda não implementadas.
 
 | Variável | Usada por | Exemplo |
 |---|---|---|

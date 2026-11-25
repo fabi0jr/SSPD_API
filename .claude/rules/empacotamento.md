@@ -13,7 +13,7 @@ Todos rodam dentro de `backend/`:
 |---|---|
 | migrate | `alembic upgrade head && python -m app.seed` |
 | api | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers` |
-| worker | (etapa 6) |
+| worker | `python -m app.composicao worker` (forma exec no Compose, sem `sh -c`, para receber o SIGTERM) |
 
 Pendências para a infra, a resolver na etapa 7 (avisar o amigo da infra, não editar `/infra`):
 - A imagem `python:3.12-slim` não tem `curl`: o healthcheck da API precisa usar `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"`.

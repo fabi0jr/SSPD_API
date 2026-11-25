@@ -19,8 +19,9 @@ def criar_engine(url: str, pool_size: int = 5, max_overflow: int = 5) -> Engine:
       segundos em vez de travar a requisição.
     - timezone=UTC: os TIMESTAMPTZ voltam sempre em UTC.
 
-    Conexões por processo: até pool_size + max_overflow (10). Com 2 réplicas
-    da API + worker, ficam bem abaixo do max_connections padrão (100).
+    Conexões por processo: até pool_size + max_overflow (10 por padrão; o
+    worker usa 2). Com 2 réplicas da API + worker, ficam bem abaixo do
+    max_connections padrão (100).
     """
     return create_engine(
         url,
@@ -52,9 +53,10 @@ def verificar_banco(engine: Engine) -> bool:
 def aguardar_banco(engine: Engine, timeout: float = 30.0, espera_inicial: float = 0.5) -> None:
     """Bloqueia até o banco responder, com backoff exponencial (até `timeout` s).
 
-    Chamado no startup da API, do worker e do seed, para nenhum deles morrer
-    se subir antes do Postgres. Depois do timeout, levanta a última exceção
-    (o container sai com erro e o restart policy do Compose tenta de novo).
+    Chamado no startup da API, do migrate e do seed, para nenhum deles morrer
+    se subir antes do Postgres. Depois do timeout, levanta a última exceção:
+    o migrate e o seed saem com erro; a API captura e sobe em modo degradado.
+    O worker não usa: o próprio loop tenta de novo a cada ciclo.
     """
     inicio = time.monotonic()
     espera = espera_inicial

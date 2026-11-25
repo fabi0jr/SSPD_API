@@ -4,7 +4,7 @@ Mapa técnico condensado, gerado em 25/11/2026 sobre a branch `docs/readme` (com
 
 ## Overview
 
-Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): sensores enviam sinais vitais para uma API, e um worker gera alertas. Hoje rodam a API (`/health`, `POST /leituras`, login JWT e rotas do dashboard) e o PostgreSQL. Domínio, casos de uso e fila estão prontos, mas **nenhum processo de worker os executa**. Instruções e regras do projeto: [CLAUDE.md](../CLAUDE.md) e `.claude/rules/`.
+Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): sensores enviam sinais vitais para uma API, e um worker gera alertas. Hoje rodam a API (`/health`, `POST /leituras`, login JWT e rotas do dashboard), o worker de alertas (loop de polling sobre a fila) e o PostgreSQL, ainda sem containers. Instruções e regras do projeto: [CLAUDE.md](../CLAUDE.md) e `.claude/rules/`.
 
 ## Repository Structure
 
@@ -13,6 +13,7 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 | `backend/app/dominio/` | `entidades.py`, `regras.py`, `erros.py`, `portas.py` |
 | `backend/app/aplicacao/` | `registrar_leitura.py`, `processar_pendentes.py`, `autenticar.py`, `cadastrar_paciente.py`, `consultas.py`, `reconhecer_alerta.py` |
 | `backend/app/adaptadores/entrada/http/` | FastAPI: `main.py`, `deps.py`, `schemas.py`, `seguranca.py`, `routers/` |
+| `backend/app/adaptadores/entrada/worker/` | `main.py`: loop do worker, logs de ciclo e SIGTERM |
 | `backend/app/adaptadores/saida/postgres/` | `db.py`, `models.py`, `mapeamento.py`, `repositorios.py`, `fila_pendentes.py` |
 | `backend/app/` | `composicao.py`, `config.py`, `seed.py` |
 | `backend/migrations/` | Alembic, revisão `0001` |
@@ -36,6 +37,7 @@ Pontos de entrada existentes (dentro de `backend/`):
 | Função | Comando |
 |---|---|
 | API | `uvicorn app.composicao:criar_app_http --factory` |
+| Worker | `python -m app.composicao worker` |
 | Migrations | `alembic upgrade head` |
 | Seed | `python -m app.seed` |
 
@@ -80,11 +82,12 @@ Ver "Convenções" no [CLAUDE.md](../CLAUDE.md): português, commits pequenos, b
 
 ## Testing
 
-Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **249 passaram** com `TEST_DATABASE_URL`; sem ela, 209 passaram e 40 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
+Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **270 passaram** com `TEST_DATABASE_URL`; sem ela, 228 passaram e 42 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
 
 ## Critical Areas
 
 - `fila_pendentes.py`: a transação única do lote é o que garante a recuperação do worker.
+- `worker/main.py`: o handler de SIGTERM só marca o evento, para o ciclo em andamento chegar ao commit.
 - `RepositorioLeiturasPg.salvar_se_nova`: idempotência do `POST /leituras`.
 - Contrato do `POST /leituras`: o simulador e o dashboard dependem dele.
 - `models.py` e migrations.
@@ -110,7 +113,6 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **249 passaram*
 | Onde | Divergência |
 |---|---|
 | `backend/pyproject.toml` | o marcador `integracao` cita `DATABASE_URL`; os testes usam `TEST_DATABASE_URL` |
-| `adaptadores/saida/postgres/db.py` | a docstring de `aguardar_banco` cita o worker (inexistente) e diz que o container sai após o timeout; a API captura o erro e sobe em modo degradado |
 | 5 docstrings em `backend/` | citam "CLAUDE.md, seção N"; a tabela "Onde está cada detalhe" do CLAUDE.md faz a correspondência |
 
 ## Unknown / Needs Confirmation

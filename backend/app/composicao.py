@@ -2,6 +2,10 @@
 
 Único lugar que conhece as implementações concretas: liga os adaptadores de
 saída (Postgres) aos casos de uso e entrega tudo aos adaptadores de entrada.
+
+Entrypoints:
+- API: uvicorn app.composicao:criar_app_http --factory
+- worker: python -m app.composicao worker
 """
 
 import logging
@@ -17,12 +21,14 @@ from app import config
 from app.adaptadores.entrada.http.deps import Componentes
 from app.adaptadores.entrada.http.main import criar_app
 from app.adaptadores.entrada.http.seguranca import ConfigJwt, verificar_senha
+from app.adaptadores.entrada.worker.main import Evento, Worker, instalar_sinais
 from app.adaptadores.saida.postgres.db import (
     aguardar_banco,
     criar_engine,
     criar_fabrica_sessoes,
     verificar_banco,
 )
+from app.adaptadores.saida.postgres.fila_pendentes import FilaPendentesPg
 from app.adaptadores.saida.postgres.repositorios import (
     RepositorioAlertasPg,
     RepositorioLeiturasPg,
@@ -32,10 +38,14 @@ from app.adaptadores.saida.postgres.repositorios import (
 from app.aplicacao.autenticar import Autenticar
 from app.aplicacao.cadastrar_paciente import CadastrarPaciente
 from app.aplicacao.consultas import Consultas
+from app.aplicacao.processar_pendentes import ProcessarPendentes
 from app.aplicacao.reconhecer_alerta import ReconhecerAlerta
 from app.aplicacao.registrar_leitura import RegistrarLeitura
 
 log = logging.getLogger("composicao")
+
+# Conexão recusada/caída e pool esgotado: o banco está fora ou sobrecarregado.
+ERROS_INDISPONIBILIDADE = (OperationalError, PoolTimeoutError)
 
 
 def relogio_utc() -> datetime:
@@ -94,6 +104,45 @@ def criar_app_http() -> FastAPI:
         jwt=jwt,
         cors_origins=config.lista("CORS_ORIGINS"),
         ao_encerrar=engine.dispose,
-        # Conexão recusada/caída e pool esgotado: o banco está fora ou sobrecarregado.
-        erros_indisponibilidade=(OperationalError, PoolTimeoutError),
+        erros_indisponibilidade=ERROS_INDISPONIBILIDADE,
     )
+
+
+def montar_worker(engine: Engine, *, intervalo: float, lote: int, parar: Evento | None = None) -> Worker:
+    fila = FilaPendentesPg(criar_fabrica_sessoes(engine))
+    return Worker(
+        ProcessarPendentes(fila),
+        intervalo=intervalo,
+        lote=lote,
+        parar=parar,
+        erros_indisponibilidade=ERROS_INDISPONIBILIDADE,
+    )
+
+
+def rodar_worker() -> None:
+    """Entrypoint do worker. Lê o ambiente, monta o loop e roda até o SIGTERM.
+
+    Não chama aguardar_banco: o próprio loop já tenta de novo a cada ciclo, sem
+    prazo, e um sleep longo no startup atrasaria a resposta ao `docker stop`.
+    """
+    configurar_logs()
+    url = config.database_url()
+    intervalo = config.inteiro("WORKER_INTERVALO", 2)
+    lote = config.inteiro("WORKER_LOTE", 500)
+    # Uma sessão por vez (reservar, depois contar_pendentes): pool mínimo.
+    engine = criar_engine(url, pool_size=1, max_overflow=1)
+    try:
+        try:
+            worker = montar_worker(engine, intervalo=intervalo, lote=lote)
+        except ValueError as erro:  # intervalo ou lote <= 0
+            raise config.ConfiguracaoAusente(str(erro)) from None
+        instalar_sinais(worker.parar)
+        worker.rodar()
+    finally:
+        engine.dispose()
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["worker"]:
+        sys.exit("uso: python -m app.composicao worker")
+    rodar_worker()

@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas). Os alertas ainda não são gerados em execução, porque falta o processo do worker.
+Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), e o worker **gera os alertas** a partir das leituras pendentes. Falta empacotar tudo em containers.
 
 | Parte | Situação |
 |---|---|
@@ -18,7 +18,7 @@ Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | Adaptador PostgreSQL: repositórios, fila de pendentes, migration e seed | ✅ pronto |
 | API: `GET /health` e `POST /leituras` | ✅ pronto |
 | Login (JWT), consultas de pacientes, leituras e alertas, reconhecimento de alertas | ✅ pronto |
-| Processo do worker de alertas (o caso de uso já existe) | ⬜ a fazer |
+| Worker de alertas (ciclo periódico, logs e encerramento por SIGTERM) | ✅ pronto |
 | Simulador de sensores | ⬜ a fazer |
 | Dockerfile e Docker Compose | ⬜ a fazer |
 | Teste de carga (k6) | ⬜ a fazer |
@@ -120,7 +120,18 @@ curl -H "Authorization: Bearer $TOKEN" "http://localhost:8000/alertas?status=abe
 
 No Swagger, use o botão **Authorize** e cole só o `access_token`.
 
-Para encerrar: `Ctrl+C` na API e `docker stop sspd-pg-dev` no banco.
+### 6. Iniciar o worker de alertas
+
+Em outro terminal, dentro de `backend/` e com o mesmo `DATABASE_URL`:
+
+```bash
+export DATABASE_URL=postgresql+psycopg://monitor:dev@localhost:55433/monitor
+.venv/bin/python -m app.composicao worker
+```
+
+Cada ciclo que processa alguma leitura gera uma linha como `ciclo: processadas=1 alertas=1 backlog=0 duracao_ms=8` (sem leituras novas, o worker não escreve nada). Envie uma leitura com `"spo2": 85` e o alerta `SPO2_BAIXA` aparece em `GET /alertas`.
+
+Para encerrar: `Ctrl+C` na API e no worker e `docker stop sspd-pg-dev` no banco.
 
 ## API disponível
 
@@ -142,16 +153,18 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 
 | Variável | Usada por | Obrigatória | Descrição |
 |---|---|---|---|
-| `DATABASE_URL` | API, migrations, seed | sim | Conexão com o PostgreSQL. Caracteres especiais na senha vão codificados (`@` → `%40`) |
+| `DATABASE_URL` | API, worker, migrations, seed | sim | Conexão com o PostgreSQL. Caracteres especiais na senha vão codificados (`@` → `%40`) |
 | `SENSOR_API_KEY` | API | sim | Chave exigida dos sensores |
 | `JWT_SECRET` | API | sim | Segredo que assina os tokens; no mínimo 32 caracteres |
 | `JWT_EXP_MINUTES` | API | não (padrão `60`) | Validade do token, em minutos |
 | `CORS_ORIGINS` | API | não | Origens liberadas, separadas por vírgula |
 | `ADMIN_EMAIL`, `ADMIN_PASSWORD` | seed | sim | Usuário administrador criado pelo seed |
 | `SEED_PACIENTES` | seed | não (padrão `50`) | Quantidade de pacientes fictícios |
+| `WORKER_INTERVALO` | worker | não (padrão `2`) | Segundos entre um ciclo e outro (inteiro maior que zero) |
+| `WORKER_LOTE` | worker | não (padrão `500`) | Máximo de leituras por ciclo (inteiro maior que zero) |
 | `TEST_DATABASE_URL` | testes de integração | não | Banco **descartável**: os testes apagam as tabelas |
 
-O [.env.example](.env.example) também lista variáveis de partes ainda não implementadas (`WORKER_*` e as do simulador). Nunca commite o arquivo `.env`.
+O [.env.example](.env.example) também lista as variáveis do simulador, que ainda não foi implementado. Nunca commite o arquivo `.env`.
 
 ## Testes
 
@@ -170,7 +183,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 .venv/bin/python -m pytest -q
 ```
 
-Último resultado (25/11/2026): **249 testes passando**, sendo 209 unitários e 40 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
+Último resultado (25/11/2026): **270 testes passando**, sendo 228 unitários e 42 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
@@ -182,9 +195,9 @@ backend/
 │   ├── dominio/        # entidades, regras de alerta, erros e portas
 │   ├── aplicacao/      # casos de uso
 │   ├── adaptadores/
-│   │   ├── entrada/    # HTTP (FastAPI)
+│   │   ├── entrada/    # HTTP (FastAPI) e worker (loop de polling)
 │   │   └── saida/      # PostgreSQL
-│   ├── composicao.py   # liga as implementações (entrypoint da API)
+│   ├── composicao.py   # liga as implementações (entrypoint da API e do worker)
 │   ├── config.py       # variáveis de ambiente
 │   └── seed.py         # dados iniciais
 ├── migrations/         # Alembic
