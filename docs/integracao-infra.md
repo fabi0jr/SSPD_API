@@ -1,21 +1,34 @@
 # Protocolo de integração: infra ↔ backend
 
-O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 25/11/2026, etapa 6 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
+O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 25/11/2026, etapa 7 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
 
 ## 1. Serviços do backend
 
-Uma **única imagem** do backend serve `api`, `worker` e `migrate`; só muda o comando. Os comandos rodam com diretório de trabalho em `backend/` (na imagem, o `WORKDIR`).
+Duas imagens, ambas `python:3.12-slim` com usuário não-root (`uid 10001`):
+
+| Imagem | Build | Serviços |
+|---|---|---|
+| backend | `build: ./backend` (`backend/Dockerfile`) | `api`, `worker` e `migrate`: a **mesma imagem**, só muda o comando |
+| simulador | `build: ./simulador` (`simulador/Dockerfile`) | `simulador` |
 
 | Serviço | Comando | Situação |
 |---|---|---|
 | `migrate` (one-shot) | `sh -c "alembic upgrade head && python -m app.seed"` | ✅ pronto |
-| `api` (2 réplicas) | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"` | ✅ pronto |
-| `worker` (1 réplica) | `python -m app.composicao worker` | ✅ pronto |
-| `simulador` | imagem própria, etapa 7 | ⬜ pendente |
+| `api` (2 réplicas) | o **padrão da imagem** (não declarar `command`) | ✅ pronto |
+| `worker` (1 réplica) | `["python", "-m", "app.composicao", "worker"]` | ✅ pronto |
+| `simulador` (1 réplica) | o padrão da imagem (`python simulador.py`) | ✅ pronto |
 
-O `Dockerfile` do backend (`python:3.12-slim`, usuário não-root) é da etapa 7. Até lá, a API e o worker rodam localmente como no [README](../README.md#como-rodar-localmente).
+O comando padrão da imagem do backend é:
 
-O comando do `worker` precisa ficar na **forma exec** (lista no YAML, `["python", "-m", "app.composicao", "worker"]`), sem `sh -c`. Assim o Python é o processo principal do container e recebe o `SIGTERM` do `docker stop`; um `sh -c` não repassa o sinal, e o Docker acaba matando o worker com `SIGKILL` depois de 10 s. O worker não tem porta nem `/health`: basta `restart: unless-stopped`, sem healthcheck.
+```
+uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=* --log-config uvicorn-log.json
+```
+
+O `--log-config` põe data e hora nos logs do uvicorn, inclusive nos de acesso. Se o Compose sobrescrever o comando da API, ele precisa manter essa opção. O `--forwarded-allow-ips=*` faz a API confiar no `X-Forwarded-For` de qualquer origem; isso é seguro **só porque a porta 8000 não é publicada** (a API só é alcançada pelo Nginx, dentro da rede do Compose). Não use `ports:` na `api`.
+
+A imagem não declara `HEALTHCHECK`, porque o worker usa a mesma imagem e não tem porta. O healthcheck da API fica no Compose (seção 3).
+
+O comando do `worker` (e o do simulador, que já é o padrão da imagem) precisa ficar na **forma exec** (lista no YAML, `["python", "-m", "app.composicao", "worker"]`), sem `sh -c`. Assim o Python é o processo principal do container e recebe o `SIGTERM` do `docker stop`; um `sh -c` não repassa o sinal, e o Docker acaba matando o worker com `SIGKILL` depois de 10 s. O worker não tem porta nem `/health`: basta `restart: unless-stopped`, sem healthcheck.
 
 ### Ordem de subida
 
@@ -41,7 +54,15 @@ postgres (healthy) ──> migrate (completed_successfully) ──> api ×2, wor
 | `SEED_PACIENTES` | | ✔ | | não (50) | 500 no teste de carga |
 | `WORKER_INTERVALO` | | | ✔ | não (2) | segundos entre os ciclos |
 | `WORKER_LOTE` | | | ✔ | não (500) | máximo de leituras por ciclo |
-| `API_URL`, `N_PACIENTES`, `INTERVALO` | | | | — | do simulador (etapa 7) |
+
+Simulador:
+
+| Variável | Obrigatória | Observação |
+|---|---|---|
+| `API_URL` | sim | URL completa do `POST /leituras` **pelo Nginx**, ex. `http://nginx/leituras` (o nome do serviço no Compose). Apontar para o Nginx, e não para uma réplica, é o que permite o teste de falha de uma réplica |
+| `SENSOR_API_KEY` | sim | o mesmo valor da `api` |
+| `N_PACIENTES` | não (10) | **no máximo `SEED_PACIENTES`**: os sensores usam `P001`, `P002`... do seed; paciente inexistente dá 404 e a leitura é descartada |
+| `INTERVALO` | não (2) | segundos entre as leituras de cada sensor; aceita fração. Carga gerada: `N_PACIENTES / INTERVALO` requisições por segundo |
 
 Referência com todas as variáveis: [.env.example](../.env.example). Segredos só no `.env` da VPS ou nos secrets do GitHub, nunca commitados. A aplicação não lê o arquivo `.env` sozinha: o Compose precisa repassá-lo (`env_file`).
 
@@ -68,6 +89,20 @@ healthcheck:
 ```
 
 `urlopen` falha com 503, então o container fica `unhealthy` enquanto o banco estiver fora. Isso é esperado e é a evidência do teste de falha do Postgres.
+
+### 3.1 Simulador
+
+O simulador não tem porta nem healthcheck. Ele pode subir antes da API: até ela responder, as leituras ficam no buffer e são reenviadas depois. Basta `restart: unless-stopped` e `depends_on: [nginx]` (sem condição). Se o `API_URL` usar `https`, o certificado precisa ser válido para o nome usado; dentro da rede do Compose, `http://nginx/leituras` evita isso.
+
+Esboço (o arquivo é da infra; nomes e redes podem mudar):
+
+```yaml
+simulador:
+  build: ./simulador
+  env_file: .env          # API_URL, SENSOR_API_KEY, N_PACIENTES, INTERVALO
+  depends_on: [nginx]
+  restart: unless-stopped
+```
 
 ## 4. Nginx
 
@@ -101,6 +136,8 @@ Cada réplica da API e o migrate abrem no máximo 10 conexões (pool 5 + 5 extra
 
 Tudo em stdout, uma linha por evento, com timestamp (`2026-11-25T14:03:12-0300 INFO [composicao] ...`). Não há arquivo de log. Para as evidências, use `docker compose logs api worker`. Com o banco fora, cada requisição gera **uma** linha `WARNING ... banco indisponível ... 503`, sem traceback.
 
+Os logs de acesso do uvicorn saem no mesmo formato (`... INFO [uvicorn.access] 172.18.0.5:41234 "POST /leituras HTTP/1.1" 201 Created`), com o IP real do cliente quando o Nginx repassa o `X-Forwarded-For`.
+
 O worker escreve uma linha por ciclo que processou alguma leitura (ocioso, não escreve nada). Essas linhas são a evidência do teste de falha do worker:
 
 ```
@@ -111,6 +148,20 @@ O worker escreve uma linha por ciclo que processou alguma leitura (ocioso, não 
 ```
 
 Para o teste de falha do Postgres, o intervalo entre o último `banco indisponível` e o `banco disponível novamente` é o tempo de recuperação do worker.
+
+O simulador escreve um resumo a cada 10 s, com totais acumulados, e uma linha na queda e na volta da API. São a evidência dos testes de falha da API:
+
+```
+2026-11-25T15:58:44+0000 INFO [simulador] resumo: enviadas=100 novas=100 duplicadas=0 rejeitadas=0 falhas=0 perdidas=0 buffer=0
+2026-11-25T15:58:56+0000 WARNING [simulador] API indisponível (URLError: ...); leituras ficam no buffer
+2026-11-25T15:59:02+0000 INFO [simulador] API disponível novamente; reenviando o buffer
+2026-11-25T15:59:16+0000 INFO [simulador] resumo final: enviadas=275 novas=275 duplicadas=0 rejeitadas=0 falhas=19 perdidas=0 buffer=0
+```
+
+- `buffer` cresce enquanto a API (ou o banco) está fora e volta a 0 depois. O buffer tem até 1000 leituras por sensor (cerca de 33 min com `INTERVALO=2`); além disso, as mais antigas são descartadas e contadas em `perdidas`.
+- `duplicadas` conta reenvios que a API já tinha gravado (resposta `200`): é a idempotência funcionando.
+- O buffer fica em memória: um `docker stop` no **simulador** perde o que estava nele, e o resumo final avisa quantas leituras eram.
+- No teste "parar as duas réplicas", compare `enviadas` (novas + duplicadas) com `SELECT count(*), count(DISTINCT id) FROM leituras` (seção 9).
 
 ## 8. Smoke test do deploy
 
@@ -147,6 +198,13 @@ pip install -r requirements-dev.txt
 TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:5432/monitor_teste pytest -q
 ```
 
-Use um serviço `postgres:16` no job (usuário `monitor`, senha `teste`, banco `monitor_teste`). Os testes **apagam as tabelas** do banco apontado: nunca use o banco de produção. Sem `TEST_DATABASE_URL`, os testes de integração são pulados (não falham), então o CI precisa defini-la para cobrir tudo.
+Use um serviço `postgres:16` no job do backend (usuário `monitor`, senha `teste`, banco `monitor_teste`). Os testes **apagam as tabelas** do banco apontado: nunca use o banco de produção. Sem `TEST_DATABASE_URL`, os testes de integração são pulados (não falham), então o CI precisa defini-la para cobrir tudo.
+
+Testes do simulador, dentro de `simulador/` (sem banco nem rede):
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
 
 Mudanças neste contrato (porta, variável, comando ou healthcheck) serão avisadas antes, e este arquivo será atualizado no mesmo PR.
