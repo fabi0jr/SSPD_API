@@ -67,8 +67,9 @@ Decisão: **sem broker de mensagens** (RabbitMQ/Redis). A fila é a própria tab
 - **SQLAlchemy 2.x** (síncrono, para simplificar) + **psycopg 3**
 - **Alembic** para migrations
 - **Pydantic v2** para validação e para os schemas
-- **PyJWT** + **passlib[bcrypt]** (ou `bcrypt` direto) para autenticação
-- **pytest** + `fastapi.testclient` para os testes funcionais
+- **PyJWT** + **`bcrypt` direto** (sem passlib) para autenticação
+- **pytest** + `fastapi.testclient` para os testes funcionais. O `TestClient` usa **`httpx2`** (o Starlette 1.10 deprecou o `httpx`)
+- **PostgreSQL 16** (imagem `postgres:16-alpine` nos testes)
 - **k6** (ou Locust) para o teste de carga
 - Imagem base: `python:3.12-slim`. O desenvolvimento local roda no WSL2 (Ubuntu 24.04, Python 3.12, Docker Engine dentro do Ubuntu, sem Docker Desktop), com o projeto em `~/SSPD_API`
 - Arquitetura do backend: **hexagonal leve (portas e adaptadores)**, com portas definidas como `typing.Protocol`. Ver seção 5.1.
@@ -104,7 +105,7 @@ Decisão: **sem broker de mensagens** (RabbitMQ/Redis). A fila é a própria tab
 │   │   ├── adaptadores/
 │   │   │   ├── entrada/
 │   │   │   │   ├── http/
-│   │   │   │   │   ├── main.py     # FastAPI app (entrypoint da API)
+│   │   │   │   │   ├── main.py     # criar_app(componentes, ...) -> FastAPI (recebe tudo pronto)
 │   │   │   │   │   ├── schemas.py  # Pydantic (só aqui)
 │   │   │   │   │   ├── seguranca.py# API key, JWT, hash de senha
 │   │   │   │   │   ├── deps.py     # Depends que entregam os casos de uso
@@ -119,12 +120,12 @@ Decisão: **sem broker de mensagens** (RabbitMQ/Redis). A fila é a própria tab
 │   │   │           ├── repositorios.py
 │   │   │           └── fila_pendentes.py
 │   │   ├── config.py               # variáveis de ambiente
-│   │   ├── composicao.py           # monta adaptadores + casos de uso (DI manual)
-│   │   └── seed.py                 # cria usuário admin e pacientes fictícios
+│   │   ├── composicao.py           # monta adaptadores + casos de uso (DI manual); criar_app_http é o entrypoint do uvicorn
+│   │   └── seed.py                 # cria usuário admin e pacientes fictícios (idempotente)
 │   └── tests/
-│       ├── unit/                   # domínio e aplicação, com fakes em memória
+│       ├── unit/                   # domínio, aplicação e HTTP (test_http.py), com fakes em memória
 │       ├── fakes.py                # implementações em memória das portas
-│       └── integracao/             # adaptadores Postgres e rotas HTTP, banco real
+│       └── integracao/             # adaptadores Postgres e rotas HTTP, banco real (apoio.py = helpers)
 ├── simulador/
 │   ├── Dockerfile
 │   └── simulador.py
@@ -226,6 +227,10 @@ class ProcessarPendentes:
 - Erros de domínio (`PacienteNaoEncontrado`, `LeituraInvalida`) são exceções do domínio. O adaptador HTTP converte em 404/422 com um exception handler.
 - JWT, API key, bcrypt e CORS são preocupação do adaptador HTTP e **não** têm porta.
 - O `/health` não tem caso de uso. O `composicao.py` injeta na rota uma função `verificar_banco() -> bool`, implementada em `db.py`. A rota não importa o adaptador de saída.
+- O adaptador HTTP recebe do `composicao.py` um `Componentes` (dataclass em `http/deps.py`, guardado em `app.state`) com os casos de uso e o `verificar_banco`. Para adicionar um caso de uso a uma rota: campo novo em `Componentes`, uma função em `deps.py` e a montagem em `composicao.montar_componentes_http`.
+- O HTTP não importa SQLAlchemy. As exceções que significam "banco fora" (`OperationalError` e `TimeoutError` do pool) chegam por `criar_app(..., erros_indisponibilidade=...)` e viram 503.
+- O `seed.py` é um entrypoint de infraestrutura, como o `composicao.py`, e por isso fala direto com o adaptador Postgres.
+- O teste `tests/unit/test_arquitetura.py` verifica a regra de dependência via `ast`, para todas as camadas da tabela acima.
 - Logs de ciclo do worker ficam no adaptador de entrada `worker/`, a partir do `ResultadoCiclo` (que já traz o `backlog`).
 
 **Fora de escopo nesta arquitetura (não fazer):**
@@ -251,8 +256,13 @@ class ProcessarPendentes:
 | `WORKER_LOTE` | worker | `500` |
 | `API_URL` | simulador | `http://nginx/leituras` |
 | `N_PACIENTES` / `INTERVALO` | simulador | `10` / `2` |
+| `TEST_DATABASE_URL` | só testes de integração | `postgresql+psycopg://monitor:teste@localhost:55432/monitor_teste` |
 
 Nunca commitar `.env`. Manter o `.env.example` atualizado sempre que surgir uma variável nova.
+
+- Senha com caractere especial na `DATABASE_URL` precisa ir codificada (`@` → `%40`, `%` → `%25`). O `migrations/env.py` passa a URL direto ao SQLAlchemy, sem passar pelo `alembic.ini`, justamente para aceitar `%`.
+- `TEST_DATABASE_URL` aponta para um banco **descartável**: os testes apagam as tabelas. Nunca apontar para produção. Sem ela, os testes de integração são pulados (não falham).
+- Sem `SENSOR_API_KEY` a API não sobe (erro de configuração). Sem `DATABASE_URL`, nenhum serviço sobe.
 
 ---
 
@@ -288,7 +298,8 @@ alertas (
   status       VARCHAR(15) NOT NULL DEFAULT 'aberto',  -- aberto | reconhecido
   criado_em    TIMESTAMPTZ DEFAULT now()
 )
--- índice: (status, criado_em DESC)
+-- índices: (status, criado_em DESC) e o ÚNICO PARCIAL uq_alertas_aberto_por_tipo
+--   (paciente_id, tipo) WHERE status = 'aberto'  -> no máximo um alerta aberto por paciente e tipo
 
 usuarios (
   id           SERIAL PRIMARY KEY,
@@ -298,6 +309,10 @@ usuarios (
 ```
 
 `recebido_em - ts` fornece a latência ponta a ponta, que é útil no relatório.
+
+Implementado na migration `migrations/versions/0001_inicial.py`. Diferenças em relação ao esboço acima: `criado_em` e `recebido_em` são `NOT NULL` (com default), e o índice único parcial dos alertas garante o anti-spam no próprio banco, mesmo com mais de um worker. O teste `test_migrations_batem_com_os_models` falha se `models.py` mudar sem migration nova.
+
+O banco guarda `spo2` e `temp` com uma casa decimal (`NUMERIC`), então 97.43 vira 97.4. O worker avalia o valor já arredondado.
 
 ---
 
@@ -313,7 +328,7 @@ Respostas em JSON. Erros no formato padrão do FastAPI (`{"detail": ...}`). Time
 
 | Método | Rota | Auth | Descrição |
 |---|---|---|---|
-| GET | `/health` | nenhuma | Executa `SELECT 1` no banco. Responde 200 `{"status":"ok","db":"ok"}` ou 503 se o banco estiver fora |
+| GET | `/health` | nenhuma | Executa `SELECT 1` no banco. Responde 200 `{"status":"ok","db":"ok"}` ou 503 `{"status":"degradado","db":"indisponivel"}` se o banco estiver fora |
 | POST | `/auth/login` | nenhuma | `{"email","senha"}` → `{"access_token","token_type":"bearer"}` |
 | POST | `/leituras` | API key | Grava uma leitura. Idempotente |
 | GET | `/pacientes` | JWT | Lista os pacientes com a última leitura e a quantidade de alertas abertos |
@@ -347,7 +362,13 @@ Validação (rejeitar com 422):
 Respostas:
 - `201` quando a leitura é nova
 - `200` quando o `id` já existia (reenvio do buffer). Usar `INSERT ... ON CONFLICT (id) DO NOTHING` e **não** retornar erro, porque o simulador trata qualquer 2xx como sucesso.
-- `401` quando a API key é inválida
+- `401` quando a API key é inválida ou ausente (`{"detail":"API key inválida ou ausente"}`). A API key é checada antes da validação dos campos: sem chave, um corpo com campo inválido dá 401 (JSON malformado ainda dá 422)
+- `404` quando o paciente não existe
+- `422` para valor fora da faixa ou `ts` no futuro, **no mesmo formato dos 422 do FastAPI**: `{"detail":[{"loc":["body","<campo>"],"msg":"...","type":"value_error"}]}`. Também para formato inválido (`ts` sem fuso, `id` que não é UUID, `fc` não inteiro, campo faltando, JSON quebrado)
+- `503` com `Retry-After: 5` quando o banco está fora (`{"detail":"banco de dados indisponível, tente novamente"}`)
+- `500` só para bug, sempre `{"detail":"erro interno"}`, sem stack trace nem mensagem da exceção
+
+Corpo das respostas 200/201: `{"id": "<uuid>", "nova": true|false}`.
 
 ---
 
@@ -387,6 +408,15 @@ Encerrar de forma limpa ao receber SIGTERM (`docker stop`).
 5. **Worker desacoplado**: uma queda do worker não afeta a ingestão, e o backlog é processado quando ele volta.
 6. **`/health` real** (testa o banco), usado no healthcheck do Compose e no smoke test do deploy.
 7. **Migrations em serviço separado** (`migrate`), para evitar que duas réplicas da API rodem migrations ao mesmo tempo.
+
+Como foi implementado (e verificado em ensaio local com uvicorn real, duas réplicas e `docker stop`/`start` no Postgres):
+- **Retry no startup** (`db.aguardar_banco`): backoff 0,5 → 1 → 2 → 4 → 5 s, até ~30 s. Usado pela API, pelo `migrate` (`env.py`) e pelo seed.
+- **Modo degradado**: se o banco não voltar nos 30 s, a API sobe mesmo assim e o `/health` responde 503 até ele voltar, em vez de o container reiniciar em loop.
+- **Recuperação sem reiniciar**: `pool_pre_ping=True` descarta as conexões mortas depois de um restart do Postgres. No ensaio, a API voltou a responder 200 cerca de 1 s depois do Postgres.
+- **`connect_timeout=5`**: com o banco fora, `/health` e `POST /leituras` respondem rápido (503) em vez de travar.
+- **Logs legíveis durante a queda**: banco fora gera uma linha de log por requisição, sem traceback, para o log continuar servindo de evidência.
+- **Anti-spam com vários workers**: além do `SKIP LOCKED`, o índice único parcial impede dois alertas abertos iguais. Os alertas são inseridos em ordem fixa (paciente, tipo) para evitar deadlock. Efeito colateral aceito: numa disputa entre workers, o log de um deles pode contar 1 alerta a mais do que foi gravado.
+- **SIGTERM**: a API fecha o pool de conexões no shutdown (lifespan).
 
 Cenários de teste de falha esperados (executados pelo amigo da infra, com explicação do Gerson):
 
@@ -448,6 +478,25 @@ Os fakes também precisam cumprir o contrato das portas (o fake da fila descarta
 
 O banco de teste é um Postgres real (serviço `postgres` no workflow do Actions ou via Compose local). Não usar SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` têm comportamento diferente.
 
+### Como rodar
+
+```bash
+# Postgres descartável (dados em memória), uma vez:
+docker run -d --name sspd-pg-teste --tmpfs /var/lib/postgresql/data \
+  -e POSTGRES_USER=monitor -e POSTGRES_PASSWORD=teste -e POSTGRES_DB=monitor_teste \
+  -p 127.0.0.1:55432:5432 postgres:16-alpine
+
+cd backend
+export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/monitor_teste
+.venv/bin/python -m pytest -q                    # tudo
+.venv/bin/python -m pytest -q -m "not integracao" # só unitários
+```
+
+- O esquema dos testes é criado pela própria migration (`alembic downgrade base` + `upgrade head`), não por `create_all`, para testar a migration.
+- Os testes de integração são marcados `integracao` automaticamente pelo `conftest.py`.
+- O teste de reservas simultâneas usa `lock_timeout` para falhar em 2 s, em vez de pendurar o CI, se alguém tirar o `SKIP LOCKED`.
+- Os testes foram conferidos quebrando o código de propósito (anti-spam, marcação, `SKIP LOCKED`, `ON CONFLICT`): em todos os casos algum teste falha.
+
 ### Desempenho (script k6 em `/tests-carga`)
 - Cenários com 10, 100 e 500 sensores virtuais fazendo `POST /leituras`
 - Métricas: latência p50/p95/p99, requisições por segundo, taxa de erro
@@ -460,13 +509,28 @@ O banco de teste é um Postgres real (serviço `postgres` no workflow do Actions
 
 - Código e comentários em português (nomes de domínio: `leitura`, `paciente`, `alerta`), exceto termos técnicos consagrados
 - Logs em stdout, uma linha por evento, com timestamp
-- Commits pequenos, mensagem em português, prefixos `feat:`, `fix:`, `test:`, `docs:`, `chore:`
-- Branch por funcionalidade e PR para a `main` (o histórico mostra a contribuição de cada um)
+- Commits pequenos (um por unidade lógica), mensagem em português, prefixos `feat:`, `fix:`, `test:`, `docs:`, `chore:`
+- Branch por funcionalidade e PR para a **`dev`** (não para a `main`). A `main` recebe a `dev` quando ela estiver estável. O histórico mostra a contribuição de cada um
+- Remote: `SSDP_API` → `https://github.com/fabi0jr/SSPD_API.git`. O terminal do Claude Code não tem credencial do GitHub: o push é feito pelo Gerson no VS Code
+- **Nunca commitar `backend/.venv`** (nem usar "adicionar tudo" sem conferir o `git status`). Um `.venv` commitado faz o git apagar o venv local de quem troca de branch. Se o venv sumir: `python3 -m venv backend/.venv && backend/.venv/bin/pip install -r backend/requirements-dev.txt`
 - Swagger disponível em `/docs`. Manter os schemas com `examples`, porque o amigo do dashboard usa o Swagger como contrato
 
 ---
 
 ## 15. Ordem de implementação sugerida
+
+| Etapa | Situação | Branch |
+|---|---|---|
+| 1. Domínio | ✅ feita, na `dev` | (commit inicial `42ccb14`) |
+| 2. Fakes + `RegistrarLeitura` e `ProcessarPendentes` | ✅ feita, na `dev` (PR #1) | `feat/casos-de-uso` |
+| 3. Adaptador Postgres | ✅ feita, na `dev` (PR #3) | `feat/adaptador-postgres` |
+| 4. `composicao.py` + HTTP (`/health`, `POST /leituras`) | ✅ feita, na `dev` (PR #5) | `feat/api-http` |
+| 5 a 8 | a fazer | |
+| 9. Textos do backend | parcial: cobre as etapas 1 a 4, atualizar a cada etapa nova | `docs/readme` |
+
+O PR #2 (`fix/restaurar-dominio`) restaurou o domínio, que o commit `e3af254` tinha apagado junto com o commit do `.venv`.
+
+Documentação: `README.md` (estado atual e como rodar) e `docs/backend.md` (detalhes técnicos). Ao terminar uma etapa, atualizar os dois.
 
 1. `dominio/`: entidades, validação, erros, `regras.py` e `portas.py`, já com os testes unitários das regras
 2. `tests/fakes.py` + casos de uso `RegistrarLeitura` e `ProcessarPendentes`, com testes unitários
@@ -477,6 +541,23 @@ O banco de teste é um Postgres real (serviço `postgres` no workflow do Actions
 7. Dockerfile do backend (uma imagem com comandos diferentes para api, worker e migrate) + Dockerfile do simulador e ajustes no simulador
 8. Script k6
 9. Textos das seções do relatório sobre o backend em `/docs/backend.md`: arquitetura hexagonal (portas e adaptadores, regra de dependência, diagrama da seção 5.1), modelagem, regras de alerta, mecanismos de tolerância a falhas e de segurança da aplicação
+
+### Comandos dos serviços (para o Dockerfile e o Compose)
+
+Todos rodam dentro de `backend/`:
+
+| Serviço | Comando |
+|---|---|
+| migrate | `alembic upgrade head && python -m app.seed` |
+| api | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers` |
+| worker | (etapa 6) |
+
+Pendências para a infra, a resolver na etapa 7 (avisar o amigo da infra, não editar `/infra`):
+- A imagem `python:3.12-slim` não tem `curl`: o healthcheck da API precisa usar `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"`.
+- O Nginx precisa repassar `/docs` e `/openapi.json` para a API, para o Swagger funcionar na VPS.
+- `--proxy-headers` porque a API fica atrás do Nginx.
+- Os logs de acesso do uvicorn saem sem timestamp. Ajustar com `--log-config` no Dockerfile.
+- GitHub Actions: serviço `postgres:16` e a variável `TEST_DATABASE_URL` para os testes de integração.
 
 ## 16. Fora de escopo (não fazer, a menos que sobre tempo)
 
