@@ -80,7 +80,7 @@ Ver "Convenções" no [CLAUDE.md](../CLAUDE.md): português, commits pequenos, b
 
 ## Testing
 
-Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **243 passaram** com `TEST_DATABASE_URL`; sem ela, 203 passaram e 40 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
+Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **249 passaram** com `TEST_DATABASE_URL`; sem ela, 209 passaram e 40 foram pulados. Os testes de integração apagam as tabelas do banco apontado. Desempenho e falhas no ambiente completo ainda não foram executados.
 
 ## Critical Areas
 
@@ -101,6 +101,7 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **243 passaram*
 
 - [README.md](../README.md): estado atual e execução local
 - [docs/backend.md](../docs/backend.md): arquitetura, domínio, banco, API, falhas, segurança e resultados
+- [docs/integracao-dashboard.md](../docs/integracao-dashboard.md) e [docs/integracao-infra.md](../docs/integracao-infra.md): protocolos com as outras partes da equipe
 - [.env.example](../.env.example): variáveis de ambiente
 - [.claude/rules/](../.claude/rules/): regras por área
 

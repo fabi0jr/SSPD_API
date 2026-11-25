@@ -136,7 +136,7 @@ Para encerrar: `Ctrl+C` na API e `docker stop sspd-pg-dev` no banco.
 | GET | `/alertas` | JWT | Alertas, com `status`, `paciente_id` e `limit` |
 | PATCH | `/alertas/{id}` | JWT | Reconhece um alerta (idempotente) |
 
-O contrato completo, com validações e códigos de erro, está em [docs/backend.md](docs/backend.md#7-api-http).
+O contrato completo, com validações e códigos de erro, está em [docs/backend.md](docs/backend.md#7-api-http). Protocolos de integração: [dashboard](docs/integracao-dashboard.md) e [infra](docs/integracao-infra.md).
 
 ## Variáveis de ambiente
 
@@ -170,7 +170,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 .venv/bin/python -m pytest -q
 ```
 
-Último resultado (25/11/2026): **243 testes passando**, sendo 203 unitários e 40 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
+Último resultado (25/11/2026): **249 testes passando**, sendo 209 unitários e 40 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
@@ -190,6 +190,7 @@ backend/
 ├── migrations/         # Alembic
 └── tests/              # unit/ e integracao/
 docs/backend.md         # documentação técnica do backend
+docs/integracao-*.md    # protocolos com o dashboard e com a infra
 ```
 
 ## Equipe e contribuição

@@ -1,6 +1,6 @@
 # Documentação técnica do backend
 
-Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md).
+Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md). Os protocolos com as outras partes estão em [integracao-dashboard.md](integracao-dashboard.md) e [integracao-infra.md](integracao-infra.md).
 
 ## Sumário
 
@@ -349,7 +349,7 @@ Esses testes ainda **não foram executados** no ambiente completo. O ensaio parc
 |---|---|
 | API key para sensores, comparada em tempo constante | ✅ implementado |
 | Validação de tipo e formato (Pydantic) e de faixas (domínio) | ✅ implementado |
-| CORS restrito a `CORS_ORIGINS` | ✅ implementado |
+| CORS restrito a `CORS_ORIGINS`; até as respostas 500 e 503 levam os headers de CORS, e o `Retry-After` é exposto | ✅ implementado |
 | Segredos somente em variáveis de ambiente; `.env` no `.gitignore` | ✅ implementado |
 | Respostas sem stack trace nem mensagem de exceção | ✅ implementado |
 | Senha do administrador armazenada com bcrypt | ✅ implementado |
@@ -366,7 +366,7 @@ Esses testes ainda **não foram executados** no ambiente completo. O ensaio parc
 
 | Conjunto | Banco | O que cobre |
 |---|---|---|
-| `tests/unit` (203 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos) e regra de dependência |
+| `tests/unit` (209 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos) e regra de dependência |
 | `tests/integracao` (40 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência e rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) |
 
 Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
@@ -377,9 +377,9 @@ Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
 
 | Execução | Resultado |
 |---|---|
-| Todos os testes | 243 passaram |
-| Somente unitários | 203 passaram |
-| Sem `TEST_DATABASE_URL` | 203 passaram e 40 foram pulados |
+| Todos os testes | 249 passaram |
+| Somente unitários | 209 passaram |
+| Sem `TEST_DATABASE_URL` | 209 passaram e 40 foram pulados |
 
 ### 10.3 Ensaio manual da API
 

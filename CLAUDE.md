@@ -82,7 +82,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 - Remote: `SSDP_API` → `https://github.com/fabi0jr/SSPD_API.git`. O terminal do Claude Code não tem credencial do GitHub: o push é feito por Gerson no VS Code
 - **Nunca commitar `backend/.venv`** nem usar "adicionar tudo" sem conferir o `git status`: um `.venv` commitado faz o git apagar o venv local de quem troca de branch (no commit `e3af254` o domínio também foi apagado; restaurado no PR #2)
 - Swagger em `/docs`. Manter os schemas com `examples`, porque o dashboard usa o Swagger como contrato
-- Ao terminar uma etapa, atualizar [README.md](README.md) e [docs/backend.md](docs/backend.md)
+- Ao terminar uma etapa, atualizar [README.md](README.md) e [docs/backend.md](docs/backend.md). Se a mudança afetar o front ou a infra (rota, campo, status, variável, comando, porta, healthcheck), atualizar também [docs/integracao-dashboard.md](docs/integracao-dashboard.md) ou [docs/integracao-infra.md](docs/integracao-infra.md) no mesmo PR
 
 ## Segurança (parte do backend)
 
