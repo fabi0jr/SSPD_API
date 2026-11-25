@@ -9,7 +9,7 @@ paths:
 
 # Contrato da API
 
-Implementados hoje: `GET /health` e `POST /leituras`. As demais rotas e o JWT são da etapa 5.
+Todas as rotas abaixo estão implementadas (etapa 5). Detalhes de cada resposta: `docs/backend.md`, seção 7.
 
 Respostas em JSON. Erros no formato padrão do FastAPI (`{"detail": ...}`). Timestamps em ISO 8601 UTC.
 
@@ -30,6 +30,18 @@ Respostas em JSON. Erros no formato padrão do FastAPI (`{"detail": ...}`). Time
 | GET | `/pacientes/{id}/leituras?desde=&ate=&limit=` | JWT | Histórico, ordenado por `ts` desc. `limit` padrão 100, máximo 1000 |
 | GET | `/alertas?status=aberto&paciente_id=&limit=` | JWT | Lista de alertas |
 | PATCH | `/alertas/{id}` | JWT | `{"status":"reconhecido"}`. Idempotente: reconhecer um alerta já reconhecido responde 200. Alerta inexistente → 404 |
+
+## Rotas do dashboard: decisões
+
+- JWT HS256 com `sub` (e-mail), `iat` e `exp`. `algorithms=["HS256"]` fixo no decode. Token ausente, inválido ou expirado → 401 `{"detail":"token inválido ou ausente"}` com `WWW-Authenticate: Bearer`, conferido antes do corpo (como a API key).
+- Login errado (e-mail inexistente ou senha errada) → 401 `{"detail":"e-mail ou senha inválidos"}`, sem dizer qual. E-mail inexistente também roda o bcrypt (hash fictício).
+- `GET /pacientes/{id}/ultima`: 404 se o paciente não existe; 200 com `null` se existe mas não tem leituras.
+- `GET /pacientes/{id}/leituras`: 404 para paciente inexistente (não lista vazia). `desde`/`ate` precisam de fuso (sem fuso → 422) e são inclusivos.
+- `GET /alertas`: sem `status`, traz todos. `paciente_id` inexistente → lista vazia.
+- `limit` fora de 1–1000 → 422 (o caso de uso também corta em 1000).
+- `PATCH /alertas/{id}` só aceita `reconhecido` (reabrir → 422).
+- `POST /pacientes`: 201, 409 para id repetido, 422 no formato `loc: ["body", campo]`.
+- Timestamps de saída sempre em UTC com `Z` (`DataHoraUtc` em `schemas.py`). A leitura de saída traz `recebido_em` e `processada`.
 
 ## `POST /leituras`
 
