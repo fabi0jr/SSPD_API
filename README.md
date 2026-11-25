@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), e o worker **gera os alertas** a partir das leituras pendentes. Falta empacotar tudo em containers.
+Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Backend e simulador já têm imagem Docker; o Docker Compose fica com a infraestrutura.
 
 | Parte | Situação |
 |---|---|
@@ -19,8 +19,9 @@ Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | API: `GET /health` e `POST /leituras` | ✅ pronto |
 | Login (JWT), consultas de pacientes, leituras e alertas, reconhecimento de alertas | ✅ pronto |
 | Worker de alertas (ciclo periódico, logs e encerramento por SIGTERM) | ✅ pronto |
-| Simulador de sensores | ⬜ a fazer |
-| Dockerfile e Docker Compose | ⬜ a fazer |
+| Simulador de sensores (buffer local e reenvio) | ✅ pronto |
+| Dockerfile do backend e do simulador | ✅ pronto |
+| Docker Compose | ⬜ a fazer (infraestrutura) |
 | Teste de carga (k6) | ⬜ a fazer |
 | Dashboard, Nginx, HTTPS, VPS e CI/CD | ⬜ a fazer |
 
@@ -41,7 +42,7 @@ O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalh
 
 ## Tecnologias
 
-Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16 e pytest.
+Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16, pytest e Docker (imagem `python:3.12-slim`).
 
 ## Como rodar localmente
 
@@ -131,7 +132,29 @@ export DATABASE_URL=postgresql+psycopg://monitor:dev@localhost:55433/monitor
 
 Cada ciclo que processa alguma leitura gera uma linha como `ciclo: processadas=1 alertas=1 backlog=0 duracao_ms=8` (sem leituras novas, o worker não escreve nada). Envie uma leitura com `"spo2": 85` e o alerta `SPO2_BAIXA` aparece em `GET /alertas`.
 
-Para encerrar: `Ctrl+C` na API e no worker e `docker stop sspd-pg-dev` no banco.
+### 7. Iniciar o simulador de sensores
+
+Em outro terminal, na raiz do repositório. O simulador só usa a biblioteca padrão do Python, então não precisa de venv:
+
+```bash
+API_URL=http://localhost:8000/leituras SENSOR_API_KEY=chave-local \
+N_PACIENTES=10 INTERVALO=2 python3 simulador/simulador.py
+```
+
+`N_PACIENTES` não pode passar de `SEED_PACIENTES`: os sensores usam os códigos `P001`, `P002`... criados pelo seed, e um paciente inexistente dá 404. A cada 10 s sai uma linha de resumo, como `resumo: enviadas=100 novas=100 duplicadas=0 rejeitadas=0 falhas=0 perdidas=0 buffer=0`. Com a API parada, as leituras ficam no buffer (`buffer=` cresce) e são reenviadas quando ela volta.
+
+Para encerrar: `Ctrl+C` na API, no worker e no simulador e `docker stop sspd-pg-dev` no banco.
+
+### Imagens Docker
+
+Na raiz do repositório:
+
+```bash
+docker build -t sspd-backend ./backend       # uma imagem para api, worker e migrate
+docker build -t sspd-simulador ./simulador
+```
+
+O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a mesma imagem com outro comando. Os comandos, as variáveis e o healthcheck de cada serviço estão no [protocolo com a infra](docs/integracao-infra.md#1-serviços-do-backend). As duas imagens rodam com um usuário sem privilégios (`uid 10001`).
 
 ## API disponível
 
@@ -154,7 +177,7 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 | Variável | Usada por | Obrigatória | Descrição |
 |---|---|---|---|
 | `DATABASE_URL` | API, worker, migrations, seed | sim | Conexão com o PostgreSQL. Caracteres especiais na senha vão codificados (`@` → `%40`) |
-| `SENSOR_API_KEY` | API | sim | Chave exigida dos sensores |
+| `SENSOR_API_KEY` | API, simulador | sim | Chave exigida dos sensores (o mesmo valor nos dois) |
 | `JWT_SECRET` | API | sim | Segredo que assina os tokens; no mínimo 32 caracteres |
 | `JWT_EXP_MINUTES` | API | não (padrão `60`) | Validade do token, em minutos |
 | `CORS_ORIGINS` | API | não | Origens liberadas, separadas por vírgula |
@@ -162,9 +185,12 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 | `SEED_PACIENTES` | seed | não (padrão `50`) | Quantidade de pacientes fictícios |
 | `WORKER_INTERVALO` | worker | não (padrão `2`) | Segundos entre um ciclo e outro (inteiro maior que zero) |
 | `WORKER_LOTE` | worker | não (padrão `500`) | Máximo de leituras por ciclo (inteiro maior que zero) |
+| `API_URL` | simulador | sim | URL completa do `POST /leituras`, ex. `http://nginx/leituras` |
+| `N_PACIENTES` | simulador | não (padrão `10`) | Quantidade de sensores (um por paciente, a partir de `P001`) |
+| `INTERVALO` | simulador | não (padrão `2`) | Segundos entre as leituras de cada sensor (aceita fração, ex. `0.5`) |
 | `TEST_DATABASE_URL` | testes de integração | não | Banco **descartável**: os testes apagam as tabelas |
 
-O [.env.example](.env.example) também lista as variáveis do simulador, que ainda não foi implementado. Nunca commite o arquivo `.env`.
+Todas estão no [.env.example](.env.example). Nunca commite o arquivo `.env`.
 
 ## Testes
 
@@ -185,6 +211,14 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 
 Último resultado (25/11/2026): **270 testes passando**, sendo 228 unitários e 42 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
+Testes do simulador (unitários, sem rede), dentro de `simulador/`. Qualquer ambiente com pytest serve, inclusive o venv do backend:
+
+```bash
+../backend/.venv/bin/python -m pytest -q
+```
+
+Último resultado (25/11/2026): **35 testes passando**.
+
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
 ## Estrutura do repositório
@@ -201,7 +235,13 @@ backend/
 │   ├── config.py       # variáveis de ambiente
 │   └── seed.py         # dados iniciais
 ├── migrations/         # Alembic
-└── tests/              # unit/ e integracao/
+├── tests/              # unit/ e integracao/
+├── Dockerfile          # imagem única: api, worker e migrate
+└── uvicorn-log.json    # formato dos logs do uvicorn (com timestamp)
+simulador/
+├── simulador.py        # sensores fictícios, buffer local e reenvio
+├── tests/
+└── Dockerfile
 docs/backend.md         # documentação técnica do backend
 docs/integracao-*.md    # protocolos com o dashboard e com a infra
 ```

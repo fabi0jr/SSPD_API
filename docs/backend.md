@@ -14,13 +14,14 @@ Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece
 8. [Tolerância a falhas](#8-tolerância-a-falhas)
 9. [Segurança da aplicação](#9-segurança-da-aplicação)
 10. [Testes e resultados](#10-testes-e-resultados)
-11. [Pendências](#11-pendências)
+11. [Simulador e imagens Docker](#11-simulador-e-imagens-docker)
+12. [Pendências](#12-pendências)
 
 ## 1. Escopo atual
 
-Em execução, o sistema hoje tem a API, o worker de alertas e o PostgreSQL. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
+Em execução, o sistema hoje tem a API, o worker de alertas, o PostgreSQL e o simulador de sensores. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
-O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. Os serviços ainda rodam direto no Python: Dockerfile e Compose são as próximas etapas.
+O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker; o Docker Compose é da infraestrutura.
 
 ## 2. Arquitetura
 
@@ -346,10 +347,11 @@ Os timestamps de saída (`ts`, `recebido_em`, `criado_em`) vêm sempre em UTC co
 | Fechamento do pool de conexões no encerramento da API e do worker | ✅ implementado |
 | Anti-spam com vários workers (`SKIP LOCKED` e índice único) | ✅ implementado no caso de uso e no adaptador |
 | API sem sessão em memória, preparada para réplicas | ✅ no código; réplicas dependem do Compose e do Nginx (pendentes) |
-| Migrations separadas da inicialização da API | ✅ comando separado; serviço `migrate` pendente |
+| Migrations separadas da inicialização da API | ✅ comando separado, na mesma imagem; o serviço `migrate` é do Compose |
 | Processo do worker, desacoplado da ingestão | ✅ implementado (seção 5.1) |
 | Encerramento limpo do worker por `SIGTERM`, sem perder o ciclo em andamento | ✅ implementado |
-| Buffer local e reenvio no simulador | ⬜ pendente |
+| Buffer local e reenvio no simulador, com o mesmo `id` (sem duplicar) | ✅ implementado (seção 11.1) |
+| Encerramento limpo do simulador por `SIGTERM`, com resumo final no log | ✅ implementado |
 
 Cada réplica da API mantém no máximo 10 conexões (pool de 5, mais 5 extras); o worker, no máximo 2.
 
@@ -378,7 +380,8 @@ Esses testes ainda **não foram executados** no ambiente completo. Os ensaios pa
 | Login com JWT (HS256) para o dashboard; algoritmo fixo na validação (bloqueia `alg: none`); `exp` obrigatório | ✅ implementado |
 | `JWT_SECRET` com no mínimo 32 caracteres, senão a API não sobe | ✅ implementado |
 | Mesma resposta e tempo parecido para e-mail inexistente e senha errada | ✅ implementado |
-| Container com usuário sem privilégios | ⬜ pendente (Dockerfile) |
+| Container com usuário sem privilégios (`uid 10001`); o código pertence ao root e não pode ser alterado pelo processo | ✅ implementado (backend e simulador) |
+| Imagem sem testes, venv nem `.env` (`.dockerignore`) | ✅ implementado |
 | HTTPS, firewall, SSH e limite de requisições | ⬜ pendente (infraestrutura) |
 
 ## 10. Testes e resultados
@@ -388,6 +391,7 @@ Esses testes ainda **não foram executados** no ambiente completo. Os ensaios pa
 | Conjunto | Banco | O que cobre |
 |---|---|---|
 | `tests/unit` (228 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos), loop do worker (logs, banco fora, erro inesperado, SIGTERM, configuração) e regra de dependência |
+| `simulador/tests` (35 testes) | nenhum | geração das leituras (formato, UUID novo a cada leitura, faixas, anomalia de ~2%, perfis), classificação das respostas, buffer (ordem, reenvio com o mesmo `id`, descarte de rejeitadas, buffer cheio), detecção de queda e volta da API e configuração |
 | `tests/integracao` (42 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência, rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) e worker montado pela composição (backlog em lotes, banco inacessível) |
 
 Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
@@ -401,6 +405,7 @@ Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
 | Todos os testes | 270 passaram |
 | Somente unitários | 228 passaram |
 | Sem `TEST_DATABASE_URL` | 228 passaram e 42 foram pulados |
+| Simulador | 35 passaram |
 
 ### 10.3 Ensaio manual da API
 
@@ -442,28 +447,82 @@ Ensaio do worker (25/11/2026, processo real `python -m app.composicao worker`, `
 | Leitura nova gravada após a volta | processada no ciclo seguinte |
 | `kill -TERM` | `SIGTERM recebido; encerrando depois do ciclo atual` e `worker encerrado`; saiu com código 0 em 0,1 s |
 
+Ensaio ponta a ponta com as imagens Docker (25/11/2026, rede Docker local sem Nginx: PostgreSQL `16-alpine`, `migrate`, duas réplicas da API, worker e simulador com 10 sensores e `INTERVALO=1`, apontado para uma das réplicas):
+
+| Passo | Resultado observado |
+|---|---|
+| `migrate` (`alembic upgrade head` e seed com 50 pacientes) | migration aplicada, 1 usuário e 50 pacientes; saiu com código 0 |
+| Healthcheck sem `curl` (`python -c "import urllib.request..."`) | as duas réplicas `healthy` |
+| Logs de acesso do uvicorn | com timestamp, em stdout: `... INFO [uvicorn.access] 127.0.0.1:55866 "GET /health HTTP/1.1" 200 OK` |
+| Processos dos containers | `uid=10001(app)` |
+| Simulador por 10 s | 100 leituras, todas `201` |
+| `docker stop` na réplica usada pelo simulador | API encerrada em 1 s, com código 0; simulador: `API indisponível ...; leituras ficam no buffer` |
+| `docker start` 15 s depois | `API disponível novamente; reenviando o buffer` no mesmo segundo; buffer zerado |
+| `docker stop` no simulador | `SIGTERM recebido`, `resumo final: enviadas=275 novas=275 duplicadas=0 rejeitadas=0 falhas=19 perdidas=0 buffer=0`, em 0,3 s |
+| Banco | `count(*) = count(DISTINCT id) = 275`: nada perdido nem duplicado |
+| Alertas gerados pelo worker | 4 `SPO2_BAIXA` (anomalias) e 1 `FEBRE` (perfil febril) |
+| `docker stop` no worker | `worker encerrado`, código 0, em 0,4 s |
+
+Observação do ensaio: sem o Nginx, o simulador apontava direto para o nome do container. Com o container parado, o DNS do Docker repassa o nome para o DNS externo, que demorou cerca de 10 s para responder, e o `timeout` do envio não cobre a resolução de nome. Por isso a queda só apareceu no log do simulador cerca de 10 s depois do `docker stop`. Com o `API_URL` apontando para o Nginx, que continua no ar, a falha chega na hora como 502 ou 503.
+
 ### 10.4 Desempenho
 
 ⬜ Pendente. Previsto: k6 com 10, 100 e 500 sensores virtuais, medindo latência p50, p95 e p99, requisições por segundo e taxa de erro.
 
-## 11. Pendências
+## 11. Simulador e imagens Docker
 
-Backend, na ordem prevista:
+### 11.1 Simulador de sensores
 
-1. Dockerfile do backend e do simulador, e o simulador;
-2. script de carga k6.
+`simulador/simulador.py`, só com a biblioteca padrão do Python. Cada paciente (`P001` até `P{N_PACIENTES}`, os mesmos códigos do seed) tem uma thread que, a cada `INTERVALO` segundos, gera uma leitura e a envia para `POST /leituras` com o header `X-API-Key`.
 
-Comandos que o Docker Compose deverá usar, executados dentro de `backend/`:
+**Geração.** Cada sinal faz um *random walk* em volta da base do perfil do paciente: a cada passo o valor volta 10% em direção à base e recebe um ruído gaussiano. Os valores ficam presos dentro das faixas aceitas pela API, então o simulador nunca gera 422.
 
-| Serviço | Comando |
+| Perfil | Pacientes | Base (FC, SpO₂, temperatura) | Efeito |
+|---|---|---|---|
+| estável | os demais | 75, 97,5, 36,6 | sem alertas, exceto pelas anomalias |
+| febril | final 3 (P003, P013...) | 102, 96,5, 38,4 | `FEBRE` frequente |
+| hipoxêmico | final 7 (P007, P017...) | 90, 91,0, 36,8 | `SPO2_BAIXA` de vez em quando |
+
+Além disso, cerca de 2% das leituras de qualquer paciente têm uma queda pontual de SpO₂ (entre 82 e 89), que dispara `SPO2_BAIXA`.
+
+**Buffer e reenvio.** O `id` (UUID v4) e o `ts` nascem na criação da leitura, e não no envio. A leitura entra num buffer local (`deque` com até 1000 itens por sensor) e só sai dele conforme a resposta:
+
+| Resposta | O que o simulador faz |
 |---|---|
-| `migrate` | `alembic upgrade head && python -m app.seed` |
-| `api` | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers` |
-| `worker` | `python -m app.composicao worker` |
+| `201` (nova) ou `200` (já existia) | sucesso: tira a leitura do buffer |
+| sem resposta (conexão recusada, DNS, timeout de 5 s), `5xx`, `408`, `429` | falha temporária: a leitura fica no buffer, e o sensor para de enviar até o próximo ciclo |
+| outros `4xx` (`401`, `404`, `422`) | rejeição definitiva: reenviar não adianta, então a leitura é descartada com uma linha de WARNING |
 
-Pontos para a infraestrutura:
+O buffer é reenviado em ordem, da leitura mais antiga para a mais nova. Como o reenvio usa o mesmo `id`, uma leitura que a API gravou mas cuja resposta se perdeu volta como `200`, sem duplicar. Com o buffer cheio, a leitura mais antiga é descartada e contada como `perdidas`. Com 1000 itens e `INTERVALO=2`, cada sensor aguenta cerca de 33 minutos de API fora.
 
-- A imagem `python:3.12-slim` não tem `curl`. O healthcheck pode usar `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"`.
+**Logs** (para as evidências dos testes de falha):
+
+```
+2026-11-25T15:58:44+0000 INFO [simulador] resumo: enviadas=100 novas=100 duplicadas=0 rejeitadas=0 falhas=0 perdidas=0 buffer=0
+2026-11-25T15:58:56+0000 WARNING [simulador] API indisponível (URLError: ...); leituras ficam no buffer
+2026-11-25T15:59:02+0000 INFO [simulador] API disponível novamente; reenviando o buffer
+2026-11-25T15:59:16+0000 INFO [simulador] resumo final: enviadas=275 novas=275 duplicadas=0 rejeitadas=0 falhas=19 perdidas=0 buffer=0
+```
+
+O resumo sai a cada 10 s, com totais acumulados. `buffer` é a soma dos buffers de todos os sensores. A queda e a volta da API geram uma linha cada (não uma por sensor). No `SIGTERM`, o simulador escreve o resumo final e avisa quantas leituras ainda estavam no buffer, porque o buffer fica em memória e se perde no encerramento.
+
+### 11.2 Imagens Docker
+
+| Imagem | Dockerfile | Conteúdo | Comando padrão |
+|---|---|---|---|
+| backend | `backend/Dockerfile` | `app/`, `migrations/`, `alembic.ini`, `uvicorn-log.json` e as dependências de `requirements.txt` | a API (uvicorn) |
+| simulador | `simulador/Dockerfile` | só `simulador.py`, sem dependências | `python simulador.py` |
+
+As duas partem de `python:3.12-slim` e rodam com o usuário `app` (`uid 10001`). A imagem do backend é **única** para `api`, `worker` e `migrate`: o Compose só troca o comando (ver [integracao-infra.md](integracao-infra.md#1-serviços-do-backend)). Por isso ela não declara `HEALTHCHECK`: o worker não tem porta e ficaria `unhealthy`. O healthcheck da API fica no Compose.
+
+O `uvicorn-log.json` põe os logs do uvicorn no mesmo formato dos logs da aplicação, com timestamp e em stdout (os de acesso também).
+
+## 12. Pendências
+
+Backend: script de carga k6 (etapa 8).
+
+Pontos para a infraestrutura, já descritos em [integracao-infra.md](integracao-infra.md):
+
+- `docker-compose.yml` com os serviços `api` (2 réplicas), `worker`, `migrate` e `simulador`, usando as imagens da seção 11.2.
 - O Nginx precisa repassar `/docs` e `/openapi.json` para o Swagger funcionar.
-- Os logs de acesso do Uvicorn saem sem data e hora; será preciso um `--log-config`.
-- O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`.
+- O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`, e pode rodar também os testes do simulador.
