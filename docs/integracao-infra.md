@@ -1,6 +1,6 @@
 # Protocolo de integração: infra ↔ backend
 
-O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 25/11/2026, etapa 5 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
+O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 25/11/2026, etapa 6 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
 
 ## 1. Serviços do backend
 
@@ -10,10 +10,12 @@ Uma **única imagem** do backend serve `api`, `worker` e `migrate`; só muda o c
 |---|---|---|
 | `migrate` (one-shot) | `sh -c "alembic upgrade head && python -m app.seed"` | ✅ pronto |
 | `api` (2 réplicas) | `uvicorn app.composicao:criar_app_http --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"` | ✅ pronto |
-| `worker` | definido na etapa 6 | ⬜ pendente |
+| `worker` (1 réplica) | `python -m app.composicao worker` | ✅ pronto |
 | `simulador` | imagem própria, etapa 7 | ⬜ pendente |
 
-O `Dockerfile` do backend (`python:3.12-slim`, usuário não-root) é da etapa 7. Até lá, a API roda localmente como no [README](../README.md#como-rodar-localmente).
+O `Dockerfile` do backend (`python:3.12-slim`, usuário não-root) é da etapa 7. Até lá, a API e o worker rodam localmente como no [README](../README.md#como-rodar-localmente).
+
+O comando do `worker` precisa ficar na **forma exec** (lista no YAML, `["python", "-m", "app.composicao", "worker"]`), sem `sh -c`. Assim o Python é o processo principal do container e recebe o `SIGTERM` do `docker stop`; um `sh -c` não repassa o sinal, e o Docker acaba matando o worker com `SIGKILL` depois de 10 s. O worker não tem porta nem `/health`: basta `restart: unless-stopped`, sem healthcheck.
 
 ### Ordem de subida
 
@@ -23,25 +25,27 @@ postgres (healthy) ──> migrate (completed_successfully) ──> api ×2, wor
 
 - Só o `migrate` roda migrations; a API **nunca** roda. Assim, duas réplicas não aplicam a mesma migration ao mesmo tempo.
 - O seed é idempotente: pode rodar em todo deploy, porque o que já existe não é alterado.
+- O worker depende só do `migrate`, não da API. Com o banco fora, ele não encerra: tenta de novo a cada ciclo, sem prazo.
 - API, migrate e seed tentam conectar ao banco por cerca de 30 s (0,5 s → 5 s). Se o banco não voltar, a API **sobe mesmo assim** em modo degradado (`/health` = 503) e se recupera sozinha quando ele voltar. Não é preciso `restart` em loop por causa do banco.
 
 ## 2. Variáveis de ambiente
 
-| Variável | `api` | `migrate` | Obrigatória | Observação |
-|---|---|---|---|---|
-| `DATABASE_URL` | ✔ | ✔ | sim | `postgresql+psycopg://usuario:senha@postgres:5432/monitor`. Caractere especial na senha vai codificado (`@` → `%40`, `%` → `%25`) |
-| `SENSOR_API_KEY` | ✔ | | sim | a mesma no simulador. Gerar com `openssl rand -hex 32` |
-| `JWT_SECRET` | ✔ | | sim | **no mínimo 32 caracteres**, senão a API não sobe. **O mesmo valor nas duas réplicas**, senão um token de uma é recusado pela outra. `openssl rand -hex 32` |
-| `JWT_EXP_MINUTES` | ✔ | | não (60) | validade do token |
-| `CORS_ORIGINS` | ✔ | | não | origem(ns) do dashboard, separadas por vírgula, ex. `https://dominio-do-dashboard`. Vazio = nenhuma origem cruzada liberada |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | | ✔ | sim | usuário do dashboard criado pelo seed |
-| `SEED_PACIENTES` | | ✔ | não (50) | 500 no teste de carga |
-| `WORKER_INTERVALO`, `WORKER_LOTE` | | | — | do worker (etapa 6) |
-| `API_URL`, `N_PACIENTES`, `INTERVALO` | | | — | do simulador (etapa 7) |
+| Variável | `api` | `migrate` | `worker` | Obrigatória | Observação |
+|---|---|---|---|---|---|
+| `DATABASE_URL` | ✔ | ✔ | ✔ | sim | `postgresql+psycopg://usuario:senha@postgres:5432/monitor`. Caractere especial na senha vai codificado (`@` → `%40`, `%` → `%25`) |
+| `SENSOR_API_KEY` | ✔ | | | sim | a mesma no simulador. Gerar com `openssl rand -hex 32` |
+| `JWT_SECRET` | ✔ | | | sim | **no mínimo 32 caracteres**, senão a API não sobe. **O mesmo valor nas duas réplicas**, senão um token de uma é recusado pela outra. `openssl rand -hex 32` |
+| `JWT_EXP_MINUTES` | ✔ | | | não (60) | validade do token |
+| `CORS_ORIGINS` | ✔ | | | não | origem(ns) do dashboard, separadas por vírgula, ex. `https://dominio-do-dashboard`. Vazio = nenhuma origem cruzada liberada |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD` | | ✔ | | sim | usuário do dashboard criado pelo seed |
+| `SEED_PACIENTES` | | ✔ | | não (50) | 500 no teste de carga |
+| `WORKER_INTERVALO` | | | ✔ | não (2) | segundos entre os ciclos |
+| `WORKER_LOTE` | | | ✔ | não (500) | máximo de leituras por ciclo |
+| `API_URL`, `N_PACIENTES`, `INTERVALO` | | | | — | do simulador (etapa 7) |
 
 Referência com todas as variáveis: [.env.example](../.env.example). Segredos só no `.env` da VPS ou nos secrets do GitHub, nunca commitados. A aplicação não lê o arquivo `.env` sozinha: o Compose precisa repassá-lo (`env_file`).
 
-Sem `DATABASE_URL`, `SENSOR_API_KEY` ou `JWT_SECRET` válido, o processo sai com erro de configuração já no start. O erro aparece no log com o nome da variável.
+Sem `DATABASE_URL`, `SENSOR_API_KEY` ou `JWT_SECRET` válido (ou, no worker, com `WORKER_INTERVALO` ou `WORKER_LOTE` menor ou igual a zero), o processo sai com erro de configuração já no start. O erro aparece no log com o nome da variável.
 
 ## 3. Healthcheck
 
@@ -87,15 +91,26 @@ Recomendações:
 
 ## 5. Encerramento (SIGTERM)
 
-No `docker stop`, a API termina as requisições em andamento e fecha o pool de conexões. O padrão de 10 s do Docker basta. O worker (etapa 6) também vai tratar SIGTERM, terminando o ciclo atual antes de sair.
+No `docker stop`, a API termina as requisições em andamento e fecha o pool de conexões. O padrão de 10 s do Docker basta. O worker trata `SIGTERM`: termina o ciclo em andamento (a transação chega ao commit) e sai com código 0 em menos de 1 s, sem esperar o intervalo. Isso vale só com o comando na forma exec (seção 1).
 
 ## 6. Conexões com o banco
 
-Cada processo abre no máximo 10 conexões (pool 5 + 5 extras). Com 2 réplicas da API, worker e migrate, são cerca de 30 no pior caso, dentro do padrão de 100 do Postgres.
+Cada réplica da API e o migrate abrem no máximo 10 conexões (pool 5 + 5 extras); o worker, no máximo 2. Com 2 réplicas da API, worker e migrate, são cerca de 32 no pior caso, dentro do padrão de 100 do Postgres.
 
 ## 7. Logs
 
 Tudo em stdout, uma linha por evento, com timestamp (`2026-11-25T14:03:12-0300 INFO [composicao] ...`). Não há arquivo de log. Para as evidências, use `docker compose logs api worker`. Com o banco fora, cada requisição gera **uma** linha `WARNING ... banco indisponível ... 503`, sem traceback.
+
+O worker escreve uma linha por ciclo que processou alguma leitura (ocioso, não escreve nada). Essas linhas são a evidência do teste de falha do worker:
+
+```
+2026-11-25T11:46:11-0400 INFO [worker] ciclo: processadas=500 alertas=1 backlog=700 duracao_ms=47
+2026-11-25T11:46:13-0400 WARNING [worker] ciclo: banco indisponível (OperationalError); nova tentativa em 2s
+2026-11-25T11:46:17-0400 INFO [worker] ciclo: banco disponível novamente
+2026-11-25T11:46:23-0400 INFO [worker] SIGTERM recebido; encerrando depois do ciclo atual
+```
+
+Para o teste de falha do Postgres, o intervalo entre o último `banco indisponível` e o `banco disponível novamente` é o tempo de recuperação do worker.
 
 ## 8. Smoke test do deploy
 
