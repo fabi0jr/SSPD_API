@@ -44,3 +44,23 @@ def test_camada_so_importa_o_permitido(camada):
         if not _permitido(modulo, PERMITIDOS[camada])
     ]
     assert violacoes == []
+
+
+# Adaptadores podem usar bibliotecas externas (SQLAlchemy, FastAPI), então aqui
+# a regra é o contrário: listar o que é proibido.
+PROIBIDOS = {
+    "adaptadores/saida": ("app.aplicacao", "app.adaptadores.entrada", "app.composicao"),
+    "adaptadores/entrada": ("app.adaptadores.saida", "app.composicao"),
+}
+
+
+@pytest.mark.parametrize("camada", sorted(PROIBIDOS))
+def test_adaptador_nao_importa_o_proibido(camada):
+    prefixos = PROIBIDOS[camada]
+    violacoes = [
+        f"{arquivo.relative_to(APP)} importa {modulo}"
+        for arquivo in sorted((APP / camada).rglob("*.py"))
+        for modulo in _imports(arquivo)
+        if any(modulo == p or modulo.startswith(p + ".") for p in prefixos)
+    ]
+    assert violacoes == []
