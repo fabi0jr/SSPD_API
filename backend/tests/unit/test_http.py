@@ -175,6 +175,29 @@ def test_erro_interno_nao_vaza_stack_trace(banco, saude):
     assert "segredo" not in r.text
 
 
+@pytest.mark.parametrize("excecao", ["bug", "banco_fora"])
+def test_500_e_503_levam_cors_para_o_dashboard_ler(banco, saude, excecao):
+    """Sem os headers de CORS, o navegador mostraria só um erro de rede."""
+    class BancoFora(Exception):
+        pass
+
+    class Falha:
+        def executar(self, leitura):
+            raise RuntimeError("bug") if excecao == "bug" else BancoFora()
+
+    app = criar_app_fake(
+        montar_componentes(banco, saude, registrar_leitura=Falha()),
+        erros_indisponibilidade=(BancoFora,),
+    )
+    r = TestClient(app, raise_server_exceptions=False).post(
+        "/leituras", json=corpo(), headers={"X-API-Key": CHAVE, "Origin": ORIGEM_DASHBOARD}
+    )
+    assert r.status_code == (500 if excecao == "bug" else 503)
+    assert r.headers["access-control-allow-origin"] == ORIGEM_DASHBOARD
+    if excecao == "banco_fora":
+        assert "Retry-After" in r.headers["access-control-expose-headers"]
+
+
 def test_banco_indisponivel_vira_503_com_retry_after(banco, saude):
     class BancoFora(Exception):
         pass

@@ -313,3 +313,26 @@ def test_swagger_documenta_jwt_nas_rotas_do_dashboard(cliente):
     assert "security" not in contrato["paths"]["/auth/login"]["post"]
     for schema in ("Login", "Token", "PacienteEntrada", "ResumoPacienteSaida", "AlertaSaida", "LeituraSaida"):
         assert contrato["components"]["schemas"][schema].get("examples"), schema
+
+
+# --- CORS para o dashboard (protocolo em docs/integracao-dashboard.md) -----------
+
+@pytest.mark.parametrize("metodo", ["GET", "POST", "PATCH"])
+def test_preflight_do_dashboard_com_authorization(cliente, metodo):
+    r = cliente.options(
+        "/alertas/1",
+        headers={
+            "Origin": "https://dashboard.exemplo",
+            "Access-Control-Request-Method": metodo,
+            "Access-Control-Request-Headers": "authorization,content-type",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers["access-control-allow-origin"] == "https://dashboard.exemplo"
+    assert "Authorization" in r.headers["access-control-allow-headers"]
+
+
+def test_401_leva_header_cors_para_o_front_ler_o_erro(cliente):
+    r = cliente.get("/pacientes", headers={"Origin": "https://dashboard.exemplo"})
+    assert r.status_code == 401
+    assert r.headers["access-control-allow-origin"] == "https://dashboard.exemplo"
