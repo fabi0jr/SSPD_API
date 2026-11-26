@@ -36,6 +36,10 @@ cat > /etc/fail2ban/jail.local <<EOF
 enabled  = true
 port     = $PORTA_SSH
 backend  = systemd
+# No Ubuntu 24.04 a unit é ssh.service; o padrão do filtro (sshd.service) não casa com nada.
+journalmatch = _SYSTEMD_UNIT=ssh.service + _COMM=sshd
+# Só chave: bots não geram "senha errada", e sim conexões fechadas no [preauth], que o modo normal ignora.
+mode     = aggressive
 maxretry = 5
 findtime = 10m
 bantime  = 1h
@@ -47,3 +51,6 @@ echo "== Conferência"
 sshd -T | grep -Ei '^(passwordauthentication|permitrootlogin|pubkeyauthentication) '
 ufw status verbose
 sleep 2 && fail2ban-client status sshd
+# Prova que o filtro enxerga o log real: quantas linhas das últimas 24 h ele reconhece como falha.
+journalctl _SYSTEMD_UNIT=ssh.service --since -24h -q --no-pager -o short > /tmp/ssh-24h.log
+fail2ban-regex /tmp/ssh-24h.log 'sshd[mode=aggressive]' | grep -E '^(Lines|Failregex):'
