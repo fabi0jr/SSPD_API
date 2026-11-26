@@ -23,7 +23,8 @@ Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | Dockerfile do backend e do simulador | ✅ pronto |
 | Docker Compose (2 réplicas da API, Nginx mínimo) | ✅ pronto |
 | Teste de carga (k6) | ✅ pronto (execução na VPS com a infraestrutura) |
-| Dashboard (em outro repositório), HTTPS, rate limit, VPS e CI/CD | ⬜ a fazer |
+| Dashboard (`dashboard/`, primeira versão em andamento) | 🟡 em andamento |
+| HTTPS, rate limit, VPS e CI/CD | ⬜ a fazer |
 
 ## Arquitetura
 
@@ -36,7 +37,7 @@ Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 [Dashboard] --HTTP + JWT--> [Nginx] --> [API] ----------------------
 ```
 
-Tudo, exceto o dashboard, está neste repositório e sobe com o [docker-compose.yml](docker-compose.yml). O dashboard fica em outro repositório e conversa com a API pelo contrato descrito em [docs/integracao-dashboard.md](docs/integracao-dashboard.md).
+Tudo está neste repositório. O backend, o simulador e o Nginx sobem com o [docker-compose.yml](docker-compose.yml). O dashboard fica em `dashboard/` e conversa com a API só por HTTP, pelo contrato descrito em [docs/integracao-dashboard.md](docs/integracao-dashboard.md).
 
 Não há broker de mensagens: a fila do worker é a própria tabela `leituras` (`processada = false`). Se o worker parar, as leituras se acumulam no banco e são processadas quando ele voltar.
 
@@ -283,6 +284,7 @@ simulador/
 infra/nginx/
 └── default.conf        # Nginx mínimo: balanceamento entre as réplicas (HTTPS e rate limit: infra)
 docker-compose.yml      # sistema completo: postgres, migrate, api ×2, worker, simulador e nginx
+dashboard/              # front (consome a API pelo contrato de docs/integracao-dashboard.md)
 tests-carga/
 ├── leituras.js         # teste de carga do POST /leituras (k6)
 └── README.md
@@ -296,6 +298,6 @@ docs/integracao-*.md    # protocolos com o dashboard e com a infra
 |---|---|---|
 | Gerson | API, worker, simulador, testes funcionais e script de carga | `backend/`, `simulador/`, `tests-carga/` |
 | Integrante de infraestrutura | VPS, Docker, Nginx, segurança do servidor, CI/CD e deploy | `infra/`, `.github/workflows/` |
-| Integrante de dashboard | Dashboard, relatório ABNT e slides | repositório do dashboard, `docs/` |
+| Integrante de dashboard | Dashboard, relatório ABNT e slides | `dashboard/`, `docs/` |
 
 Fluxo: uma branch por funcionalidade, commits pequenos em português (`feat:`, `fix:`, `test:`, `docs:`, `chore:`) e pull request para a `dev`. A `main` recebe a `dev` quando ela estiver estável.

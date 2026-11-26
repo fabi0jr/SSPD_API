@@ -1,6 +1,8 @@
 # Protocolo de integração: dashboard ↔ API
 
-Contrato entre o dashboard (front) e a API do backend. Estado em 26/11/2026: backend completo e sistema subindo com o Docker Compose. O dashboard fica em **outro repositório** e consome a API só por HTTP, pelo contrato abaixo.
+Contrato entre o dashboard (front) e a API do backend. Estado em 26/11/2026: backend completo e sistema subindo com o Docker Compose. O dashboard fica em `dashboard/`, **neste repositório**, e consome a API só por HTTP, pelo contrato abaixo. Quem trabalha no front altera só `dashboard/`: se precisar de algo no backend, no Compose ou no Nginx, peça ao responsável. O guia condensado para agentes de IA, com o que ajustar na primeira versão do `index.html`, está em [.ai/project-context.md](../.ai/project-context.md).
+
+**Resumo do que mais confunde:** as rotas ficam na raiz (sem prefixo `/api`); o dashboard usa login e `Authorization: Bearer`, nunca a `X-API-Key` (que é só dos sensores); listagens usam `limit` (não `limite`); os sinais vêm como `fc`, `spo2` e `temp` dentro de `ultima_leitura`.
 
 **Fonte da verdade:** o Swagger em `/docs` e o contrato OpenAPI em `/openapi.json`. Se este texto e o Swagger divergirem, vale o Swagger, e o backend precisa corrigir este arquivo. Os tipos TypeScript podem ser gerados do contrato, por exemplo com `npx openapi-typescript http://localhost/openapi.json -o src/api/tipos.ts` (com o Compose; sem ele, `http://localhost:8000/openapi.json`).
 
@@ -16,7 +18,7 @@ Contrato entre o dashboard (front) e a API do backend. Estado em 26/11/2026: bac
 
 Deixe a URL base configurável (ex.: `VITE_API_URL`), sem fixar no código.
 
-**CORS:** a origem do dashboard (ex.: `http://localhost:5173` ou `https://dominio-do-dashboard`) precisa estar em `CORS_ORIGINS` na API. O `.env.example` já traz `CORS_ORIGINS=http://localhost:5173`, a porta padrão do Vite, então o front em desenvolvimento funciona com o Compose sem mudar nada. Como o dashboard está em outro repositório, na VPS há duas saídas, a combinar com a infra: servir o build do front pelo mesmo Nginx e domínio da API (aí o CORS nem entra em jogo) ou hospedá-lo em outro domínio, que então vai em `CORS_ORIGINS`. Métodos liberados: `GET`, `POST` e `PATCH`. Headers liberados: `Authorization` e `Content-Type`. O header `Retry-After` é exposto ao JavaScript. Todas as respostas, inclusive 401, 503 e 500, levam os headers de CORS, então o front sempre consegue ler o status e o corpo.
+**CORS:** a origem do dashboard (ex.: `http://localhost:5173` ou `https://dominio-do-dashboard`) precisa estar em `CORS_ORIGINS` na API. O `.env.example` já traz `CORS_ORIGINS=http://localhost:5173`, a porta padrão do Vite, então o front em desenvolvimento funciona com o Compose sem mudar nada. Um HTML estático em desenvolvimento pode ser servido com `python3 -m http.server 5173` dentro de `dashboard/` (abrir o arquivo direto, em `file://`, não funciona, porque a origem `null` não está liberada). Na VPS há duas saídas, a combinar com a infra: servir o front pelo mesmo Nginx e domínio da API (aí o CORS nem entra em jogo, mas o `infra/nginx/default.conf`, que hoje manda tudo para a API, precisa de uma rota para os arquivos do front) ou hospedá-lo em outro domínio, que então vai em `CORS_ORIGINS`. Métodos liberados: `GET`, `POST` e `PATCH`. Headers liberados: `Authorization` e `Content-Type`. O header `Retry-After` é exposto ao JavaScript. Todas as respostas, inclusive 401, 503 e 500, levam os headers de CORS, então o front sempre consegue ler o status e o corpo.
 
 ## 2. Autenticação
 

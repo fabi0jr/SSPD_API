@@ -40,7 +40,7 @@ Entrega no Google Classroom: relatório em PDF, slides, link do GitHub, evidênc
 [Dashboard] --HTTP + JWT--> [Nginx] --> [API] ----------------------
 ```
 
-Serviços (Docker Compose): `simulador`, `api` (stateless, 2 réplicas), `worker`, `postgres` (volume nomeado), `migrate` (one-shot, antes da API) e `nginx`. O dashboard, por enquanto, fica em outro repositório.
+Serviços (Docker Compose): `simulador`, `api` (stateless, 2 réplicas), `worker`, `postgres` (volume nomeado), `migrate` (one-shot, antes da API) e `nginx`. O dashboard fica em `/dashboard`, neste repositório, e consome a API só por HTTP (contrato em `docs/integracao-dashboard.md`; o front se adapta à API).
 
 Decisão: **sem broker de mensagens**. A fila é a tabela `leituras` (`processada = false`): se o worker cair, as leituras se acumulam e são processadas quando ele volta.
 

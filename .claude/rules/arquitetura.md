@@ -6,7 +6,7 @@ paths:
 
 # Estrutura do repositório
 
-A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 ainda não existem `dashboard/` (por enquanto, em outro repositório) e o resto de `infra/` (só há `infra/nginx/default.conf`).
+A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 o `dashboard/` existe só na `main` (primeira versão do amigo 2, ainda fora da `dev`) e falta o resto de `infra/` (só há `infra/nginx/default.conf`).
 
 ```
 /
