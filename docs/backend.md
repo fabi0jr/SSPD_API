@@ -1,6 +1,6 @@
 # Documentação técnica do backend
 
-Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md). Os protocolos com as outras partes estão em [integracao-dashboard.md](integracao-dashboard.md) e [integracao-infra.md](integracao-infra.md).
+Descreve o que está implementado em 26/11/2026. O que ainda não existe aparece marcado como **pendente**. Para instalar e executar, veja o [README](../README.md). Os protocolos com as outras partes estão em [integracao-dashboard.md](integracao-dashboard.md) e [integracao-infra.md](integracao-infra.md).
 
 ## Sumário
 
@@ -21,7 +21,7 @@ Descreve o que está implementado em 25/11/2026. O que ainda não existe aparece
 
 Em execução, o sistema hoje tem a API, o worker de alertas, o PostgreSQL e o simulador de sensores. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
-O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker; o Docker Compose é da infraestrutura.
+O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker, e o `POST /leituras` tem um teste de carga com k6 (seção 10.4); o Docker Compose é da infraestrutura.
 
 ## 2. Arquitetura
 
@@ -467,7 +467,25 @@ Observação do ensaio: sem o Nginx, o simulador apontava direto para o nome do 
 
 ### 10.4 Desempenho
 
-⬜ Pendente. Previsto: k6 com 10, 100 e 500 sensores virtuais, medindo latência p50, p95 e p99, requisições por segundo e taxa de erro.
+Script: `tests-carga/leituras.js` (k6 2.3.0, rodando no Docker). Cada usuário virtual é um sensor que envia uma leitura válida a cada 2 s para o seu paciente, com a API key, como o simulador. O resumo de cada execução fica em JSON em `tests-carga/resultados/`. Como rodar: [tests-carga/README.md](../tests-carga/README.md).
+
+**Ensaio local** (26/11/2026): WSL2 com Xeon W-1270 (16 threads), **um** processo uvicorn sem Nginx, PostgreSQL `16-alpine` no Docker, seed com 500 pacientes, worker parado e k6 na mesma máquina. Cada cenário durou 1 minuto, com `INTERVALO=2`:
+
+| Sensores | Esperado (req/s) | Medido (req/s) | Requisições | p50 (ms) | p95 (ms) | p99 (ms) | Máx. (ms) | Erros |
+|---|---|---|---|---|---|---|---|---|
+| 10 | 5 | 4,8 | 300 | 8,1 | 10,2 | 11,0 | 13,8 | 0% |
+| 100 | 50 | 48,4 | 3000 | 8,1 | 10,9 | 12,8 | 64,4 | 0% |
+| 500 | 250 | 166,2 | 10305 | 2960 | 3296 | 3512 | 4149 | 0% |
+
+Todas as respostas foram `201`. No banco, `count(*) = count(DISTINCT id)`: nenhuma leitura duplicada.
+
+Leitura dos resultados:
+
+- Com 10 e 100 sensores, a API atende toda a carga, com p95 em torno de 11 ms.
+- Com 500 sensores, um processo satura em cerca de **165 req/s**. Como cada sensor espera a resposta antes da próxima leitura, a taxa fica abaixo dos 250 req/s esperados e a latência sobe para cerca de 3 s, **sem erros**. O p95 passa da meta de 500 ms.
+- O gargalo é a CPU do processo Python. Durante esse cenário, o uvicorn ficou em cerca de 120% de CPU, e os processos do PostgreSQL ficaram abaixo de 10% cada. Com `INTERVALO=1`, o teto foi o mesmo (cerca de 165 req/s). Por isso, a capacidade cresce com mais processos, ou seja, mais réplicas atrás do Nginx, e não com ajustes no banco.
+
+A execução oficial do relatório é feita na VPS, com as 2 réplicas atrás do Nginx, e fica com a infraestrutura ([integracao-infra.md](integracao-infra.md), seção 11). Com duas réplicas, o esperado é atender os 250 req/s do cenário de 500 sensores, se houver CPU disponível para as duas.
 
 ## 11. Simulador e imagens Docker
 
@@ -519,10 +537,11 @@ O `uvicorn-log.json` põe os logs do uvicorn no mesmo formato dos logs da aplica
 
 ## 12. Pendências
 
-Backend: script de carga k6 (etapa 8).
+Backend: textos do relatório (etapa 9).
 
 Pontos para a infraestrutura, já descritos em [integracao-infra.md](integracao-infra.md):
 
 - `docker-compose.yml` com os serviços `api` (2 réplicas), `worker`, `migrate` e `simulador`, usando as imagens da seção 11.2.
 - O Nginx precisa repassar `/docs` e `/openapi.json` para o Swagger funcionar.
 - O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`, e pode rodar também os testes do simulador.
+- Teste de desempenho na VPS: `SEED_PACIENTES=500`, rate limit de `/leituras` que comporte 250 req/s de um único IP (ou desligado durante o teste), simulador parado e `docker stats` durante cada cenário.
