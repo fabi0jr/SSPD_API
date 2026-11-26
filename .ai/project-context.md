@@ -22,9 +22,11 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 
 | `backend/Dockerfile`, `backend/uvicorn-log.json` | imagem única de api, worker e migrate; formato dos logs do uvicorn |
 | `simulador/` | `simulador.py` (só stdlib), `tests/`, `Dockerfile` |
+| raiz | `docker-compose.yml` (postgres, migrate, api ×2, worker, simulador, nginx) |
+| `infra/nginx/` | `default.conf`: Nginx mínimo, balanceamento entre as réplicas |
 | `tests-carga/` | `leituras.js` (k6, roda com `grafana/k6:2.3.0` no Docker), `README.md` |
 
-**Planejado, ainda ausente:** `dashboard/`, `infra/`, `.github/workflows/`, `docker-compose.yml`.
+**Planejado, ainda ausente:** `dashboard/` (por enquanto em outro repositório), o resto de `infra/` (HTTPS, rate limit) e `.github/workflows/`.
 
 ## Technology Stack
 
@@ -45,6 +47,7 @@ Pontos de entrada existentes (dentro de `backend/`):
 | Migrations | `alembic upgrade head` |
 | Seed | `python -m app.seed` |
 | Simulador | `python simulador/simulador.py` (na raiz) |
+| Sistema completo | `docker compose up -d --build --wait` (na raiz, com `.env`) |
 | Carga (k6) | `docker run ... grafana/k6:2.3.0 run leituras.js` (em `tests-carga/`, ver o README da pasta) |
 
 Sem broker: a tabela `leituras` (`processada = false`) é a fila, consumida com `FOR UPDATE SKIP LOCKED`.

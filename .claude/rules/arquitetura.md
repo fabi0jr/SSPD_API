@@ -6,13 +6,13 @@ paths:
 
 # Estrutura do repositório
 
-A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 ainda não existem: `docker-compose.yml`, `dashboard/` e `infra/`.
+A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 ainda não existem `dashboard/` (por enquanto, em outro repositório) e o resto de `infra/` (só há `infra/nginx/default.conf`).
 
 ```
 /
 ├── CLAUDE.md
 ├── README.md
-├── docker-compose.yml          # raiz, mantido pelo amigo da infra
+├── docker-compose.yml          # raiz: sistema completo (feito pelo Gerson a pedido da infra, mantido pela infra)
 ├── .env.example
 ├── backend/
 │   ├── Dockerfile              # uma imagem para api, worker e migrate
@@ -62,7 +62,7 @@ A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 ainda não existem: `doc
 ├── tests-carga/
 │   └── leituras.js             # script k6
 ├── dashboard/                  # amigo 2
-├── infra/                      # amigo 1
+├── infra/                      # amigo 1 (nginx/default.conf mínimo já existe)
 └── docs/                       # relatório, prints, gráficos
 ```
 
