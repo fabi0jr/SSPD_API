@@ -7,15 +7,28 @@ O que roda na VPS, como chega lá e como é protegido. O contrato do backend com
 ## Visão geral
 
 ```
-Internet ──443──> [UFW] ──> [Traefik] ──HTTP, rede infra-network──> [Nginx do projeto] ──> api ×2 ──> postgres
+Internet ──443──> [UFW] ──> [Traefik] ──HTTP, rede sspd-edge──> [Nginx do projeto] ──> api ×2 ──> postgres
            80 ──> (redireciona/ACME)   HTTPS (Let's Encrypt)            rate limit, balanceamento       worker ─┘
                                                                      dashboard estático
 ```
 
-- **VPS:** Ubuntu, 2 vCPUs, 8 GB de RAM, Docker Engine + Compose. Outros projetos dividem a máquina.
+- **VPS:** Ubuntu, 2 vCPUs, 8 GB de RAM, Docker Engine + Compose. Outros projetos (não relacionados) dividem a máquina; o SSPD fica isolado deles (seção "Isolamento").
 - **Traefik** (já existente na VPS, o único container que publica as portas 80/443): termina o HTTPS com certificado Let's Encrypt renovado sozinho e roteia `sspd.fj-dev.tech` para o Nginx do projeto pelas labels em [docker-compose.prod.yml](../docker-compose.prod.yml).
-- **Nginx** ([infra/nginx/default.conf](../infra/nginx/default.conf)): balanceia entre as 2 réplicas da API com retentativa na outra réplica, aplica rate limit por IP (login e leituras), adiciona os cabeçalhos de segurança (HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy`) e serve o dashboard. O IP real do cliente vem do `X-Forwarded-For`, aceito só quando chega da rede do Traefik.
-- **Isolamento:** só o Nginx entra na rede `infra-network`. `api`, `worker` e `postgres` ficam na rede interna do projeto, sem nenhuma porta publicada.
+- **Nginx** ([infra/nginx/default.conf](../infra/nginx/default.conf)): balanceia entre as 2 réplicas da API com retentativa na outra réplica, aplica rate limit por IP (login e leituras), adiciona os cabeçalhos de segurança (HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy`) e serve o dashboard. O IP real do cliente vem do `X-Forwarded-For`, aceito só quando chega da rede `sspd-edge` (`172.30.0.0/24`).
+## Isolamento dos outros projetos da VPS
+
+| Peça | Como fica isolada |
+|---|---|
+| Containers, banco, volume | projeto Compose `sspd`, Postgres próprio (volume `sspd_pgdata`) |
+| Rede interna | `sspd_default`: `api`, `worker`, `postgres`, `simulador`, `nginx`; nenhuma porta publicada |
+| Rede de borda | `sspd-edge` (`172.30.0.0/24`): só o Nginx do SSPD e o Traefik. O Nginx **não** entra na `infra-network` dos outros projetos |
+| Chave do CI | exclusiva, só roda o `deploy.sh` |
+| Segredos | `.env` próprio na VPS |
+| Backup | só local, em `~/backups/sspd` |
+
+O único ponto compartilhado é o Traefik (HTTPS). A rede `sspd-edge` é criada pelo compose do Traefik (`~/projetos/infra`) e usada pelo SSPD como `external`: o SSPD depende do Traefik, nunca o contrário. Para desligar o projeto no fim da disciplina, basta `docker compose down -v` e tirar a `sspd-edge` do compose do Traefik.
+
+UFW, SSH e fail2ban (seção "Segurança da VPS") são da máquina, por natureza, e protegem todos os projetos dela.
 
 ## Arquivos
 
@@ -62,14 +75,14 @@ Evidências para o relatório (na VPS):
 sudo ufw status verbose
 sudo fail2ban-client status sshd
 sudo sshd -T | grep -Ei 'passwordauthentication|permitrootlogin'
-ssh -o PubkeyAuthentication=no fabio@sspd.fj-dev.tech   # deve recusar: Permission denied (publickey)
+ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password fabio@sspd.fj-dev.tech   # deve recusar: Permission denied (publickey)
 curl -sI https://sspd.fj-dev.tech/health                # HTTP/2 200 + strict-transport-security
 for i in $(seq 12); do curl -s -o /dev/null -w '%{http_code} ' -X POST https://sspd.fj-dev.tech/auth/login -H 'Content-Type: application/json' -d '{}'; done   # 422... depois 429
 ```
 
 ## Backups
 
-`infra/backup/backup.sh`, todo dia às 03:30 pelo cron: `pg_dump` compactado em `~/backups/sspd` (7 dias) e cópia no Backblaze B2 (7 dias).
+`infra/backup/backup.sh`, todo dia às 03:30 pelo cron: `pg_dump` compactado em `~/backups/sspd`, com 7 dias de retenção. Fica só na VPS, de propósito (isolamento); a limitação é que um problema no disco da VPS leva os backups junto.
 
 Restaurar (apaga e recria os dados do banco):
 
@@ -82,6 +95,17 @@ docker compose start api worker simulador
 ```
 
 ## Primeira instalação na VPS (feita uma vez)
+
+No compose do Traefik (`~/projetos/infra/docker-compose.yml`), o serviço `traefik` entra também na rede `sspd-edge`, declarada assim:
+
+```yaml
+networks:
+  sspd-edge:
+    name: sspd-edge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+```
 
 ```bash
 git clone https://github.com/fabi0jr/SSPD_API.git ~/projetos/sspd && cd ~/projetos/sspd
