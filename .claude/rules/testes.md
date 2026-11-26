@@ -38,7 +38,10 @@ O banco de teste é um Postgres real (serviço `postgres` no workflow do Actions
 - Os testes foram conferidos quebrando o código de propósito (anti-spam, marcação, `SKIP LOCKED`, `ON CONFLICT`): em todos os casos algum teste falha.
 
 ## Desempenho (script k6 em `/tests-carga`)
-- Cenários com 10, 100 e 500 sensores virtuais fazendo `POST /leituras`
-- Métricas: latência p50/p95/p99, requisições por segundo, taxa de erro
-- CPU/RAM da VPS coletados pelo amigo da infra (`docker stats`)
-- Exportar o resumo em JSON para gerar a tabela e o gráfico do relatório
+
+Implementado na etapa 8: `tests-carga/leituras.js`, rodando com `grafana/k6:2.3.0` no Docker (comandos em `tests-carga/README.md`).
+- Cenários com 10, 100 e 500 sensores virtuais (`SENSORES`) fazendo `POST /leituras`. Executor `constant-vus`: cada VU é um sensor do paciente `P00n`, uma leitura a cada `INTERVALO` (padrão 2 s, como o simulador), com atraso aleatório só na primeira iteração e ritmo descontando a latência
+- Leituras sempre válidas (nunca 422), `id` novo a cada uma, ~2% com SpO₂ baixa. Sem bibliotecas externas: `crypto.randomUUID()` e `handleSummary` próprios
+- Métricas: latência p50/p90/p95/p99, requisições por segundo, taxa de erro e respostas por classe (201, outros 2xx, 4xx, 5xx, sem resposta). Metas: erros < 1% e p95 < 500 ms (k6 sai com 99 se falharem)
+- Resumo em JSON em `tests-carga/resultados/` (no `.gitignore`), para a tabela e o gráfico do relatório. Não mudar o formato sem atualizar `docs/integracao-infra.md`, seção 11
+- CPU/RAM coletados pelo amigo da infra (`docker stats`). Um uvicorn satura em ~165 req/s em WSL2, limitado pela CPU do Python (`docs/backend.md`, seção 10.4)
