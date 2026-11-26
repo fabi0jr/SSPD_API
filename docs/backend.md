@@ -21,7 +21,7 @@ Descreve o que está implementado em 26/11/2026. O que ainda não existe aparece
 
 Em execução, o sistema hoje tem a API, o worker de alertas, o PostgreSQL e o simulador de sensores. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
-O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker, e o `POST /leituras` tem um teste de carga com k6 (seção 10.4); o Docker Compose é da infraestrutura.
+O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker, o sistema sobe com um `docker-compose.yml` com 2 réplicas da API atrás do Nginx (seção 11.3), e o `POST /leituras` tem um teste de carga com k6 (seção 10.4).
 
 ## 2. Arquitetura
 
@@ -346,12 +346,14 @@ Os timestamps de saída (`ts`, `recebido_em`, `criado_em`) vêm sempre em UTC co
 | Uma linha de log por falha esperada, sem traceback | ✅ implementado |
 | Fechamento do pool de conexões no encerramento da API e do worker | ✅ implementado |
 | Anti-spam com vários workers (`SKIP LOCKED` e índice único) | ✅ implementado no caso de uso e no adaptador |
-| API sem sessão em memória, preparada para réplicas | ✅ no código; réplicas dependem do Compose e do Nginx (pendentes) |
-| Migrations separadas da inicialização da API | ✅ comando separado, na mesma imagem; o serviço `migrate` é do Compose |
+| API sem sessão em memória, com 2 réplicas atrás do Nginx | ✅ implementado (seção 11.3) |
+| Migrations separadas da inicialização da API | ✅ serviço `migrate` (one-shot), na mesma imagem |
 | Processo do worker, desacoplado da ingestão | ✅ implementado (seção 5.1) |
 | Encerramento limpo do worker por `SIGTERM`, sem perder o ciclo em andamento | ✅ implementado |
 | Buffer local e reenvio no simulador, com o mesmo `id` (sem duplicar) | ✅ implementado (seção 11.1) |
 | Encerramento limpo do simulador por `SIGTERM`, com resumo final no log | ✅ implementado |
+| Retentativa na outra réplica pelo Nginx (rotas idempotentes), sem mascarar o 503 da API | ✅ implementado (configuração mínima do Nginx) |
+| Reinício automático dos containers (`restart: unless-stopped`) e healthcheck da API no compose | ✅ implementado |
 
 Cada réplica da API mantém no máximo 10 conexões (pool de 5, mais 5 extras); o worker, no máximo 2.
 
@@ -364,7 +366,7 @@ Cada réplica da API mantém no máximo 10 conexões (pool de 5, mais 5 extras);
 | Parar o worker | a ingestão continua e o backlog é processado na volta | log do worker e contagem de pendentes |
 | Parar o PostgreSQL | API responde 503, simulador guarda as leituras, tudo se recupera | tempo até a recuperação |
 
-Esses testes ainda **não foram executados** no ambiente completo. Os ensaios parciais já feitos estão na seção 10.3.
+Os quatro cenários foram ensaiados localmente com o `docker-compose.yml`, e todos se comportaram como esperado (seção 10.3). A execução oficial, com as evidências do relatório, é feita na VPS pela infraestrutura.
 
 ## 9. Segurança da aplicação
 
@@ -382,6 +384,8 @@ Esses testes ainda **não foram executados** no ambiente completo. Os ensaios pa
 | Mesma resposta e tempo parecido para e-mail inexistente e senha errada | ✅ implementado |
 | Container com usuário sem privilégios (`uid 10001`); o código pertence ao root e não pode ser alterado pelo processo | ✅ implementado (backend e simulador) |
 | Imagem sem testes, venv nem `.env` (`.dockerignore`) | ✅ implementado |
+| Banco e réplicas da API sem porta publicada; só o Nginx fica exposto | ✅ implementado (compose) |
+| Cada container recebe só as variáveis de que precisa | ✅ implementado (compose) |
 | HTTPS, firewall, SSH e limite de requisições | ⬜ pendente (infraestrutura) |
 
 ## 10. Testes e resultados
@@ -465,6 +469,23 @@ Ensaio ponta a ponta com as imagens Docker (25/11/2026, rede Docker local sem Ng
 
 Observação do ensaio: sem o Nginx, o simulador apontava direto para o nome do container. Com o container parado, o DNS do Docker repassa o nome para o DNS externo, que demorou cerca de 10 s para responder, e o `timeout` do envio não cobre a resolução de nome. Por isso a queda só apareceu no log do simulador cerca de 10 s depois do `docker stop`. Com o `API_URL` apontando para o Nginx, que continua no ar, a falha chega na hora como 502 ou 503.
 
+Ensaio com o `docker-compose.yml` (26/11/2026, WSL2, `docker compose up -d --build --wait`, Nginx na porta 8080, simulador com 10 sensores e `INTERVALO=1`):
+
+| Passo | Resultado observado |
+|---|---|
+| `up --wait` | tudo no ar em 18 s: `migrate` com código 0 (migration, 1 usuário e 50 pacientes), `api-1` e `api-2` `healthy` |
+| `.env` sem as variáveis obrigatórias | o compose se recusa a subir e diz qual variável falta |
+| Pelo Nginx | `/health` 200, `/docs` 200, `/pacientes` sem token 401, login 200, `GET /alertas` 200, `PATCH /alertas/{id}` 200, chave errada 401 |
+| Balanceamento | em 20 s, 95 `POST /leituras` na `api-1` e 110 na `api-2` |
+| Containers | API como `uid=10001(app)`; nenhuma porta publicada além da do Nginx |
+| `docker stop` na `api-1` por 20 s | `/health` sempre 200; o simulador **não registrou nenhuma falha**: o Nginx tentou a `api-1`, recebeu conexão recusada e reenviou para a `api-2`. Na volta, a `api-1` recebeu tráfego de novo sem reiniciar o Nginx |
+| `docker stop` nas duas réplicas por 20 s | `/health` 502; o simulador guardou as leituras no buffer (`API indisponível (HTTP 502)`) e esvaziou ao voltar; `count(*) = count(DISTINCT id) = 1335` |
+| `docker stop` no worker por 20 s | ingestão normal; backlog de 23 para 223 e de volta a 20 (o fluxo normal) 5 s depois do `docker start` |
+| `docker stop` no PostgreSQL | pelo Nginx, `/health` 503 `degradado` e `POST /leituras` 503 com `Retry-After: 5` (o 503 da API chega ao cliente); `/health` voltou a 200 2 s depois do `docker start`; worker: `banco indisponível` e `banco disponível novamente` |
+| Contagem final | `count(*) = count(DISTINCT id) = 1920`; o simulador contou 8 `duplicadas`: reenvios de leituras que a API já tinha gravado, respondidos com 200 |
+
+Ajustes feitos durante o ensaio: o `location /alertas/` do Nginx respondia 301 ao `GET /alertas` (ficou `location /alertas`), e montar só o arquivo `default.conf` fazia o container continuar com a versão antiga depois de uma edição (o compose monta a pasta `infra/nginx`).
+
 ### 10.4 Desempenho
 
 Script: `tests-carga/leituras.js` (k6 2.3.0, rodando no Docker). Cada usuário virtual é um sensor que envia uma leitura válida a cada 2 s para o seu paciente, com a API key, como o simulador. O resumo de cada execução fica em JSON em `tests-carga/resultados/`. Como rodar: [tests-carga/README.md](../tests-carga/README.md).
@@ -485,7 +506,9 @@ Leitura dos resultados:
 - Com 500 sensores, um processo satura em cerca de **165 req/s**. Como cada sensor espera a resposta antes da próxima leitura, a taxa fica abaixo dos 250 req/s esperados e a latência sobe para cerca de 3 s, **sem erros**. O p95 passa da meta de 500 ms.
 - O gargalo é a CPU do processo Python. Durante esse cenário, o uvicorn ficou em cerca de 120% de CPU, e os processos do PostgreSQL ficaram abaixo de 10% cada. Com `INTERVALO=1`, o teto foi o mesmo (cerca de 165 req/s). Por isso, a capacidade cresce com mais processos, ou seja, mais réplicas atrás do Nginx, e não com ajustes no banco.
 
-A execução oficial do relatório é feita na VPS, com as 2 réplicas atrás do Nginx, e fica com a infraestrutura ([integracao-infra.md](integracao-infra.md), seção 11). Com duas réplicas, o esperado é atender os 250 req/s do cenário de 500 sensores, se houver CPU disponível para as duas.
+Com o `docker-compose.yml` (2 réplicas atrás do Nginx, mesma máquina, simulador parado, seed com 50 pacientes e `N_PACIENTES=50`), o cenário de 500 sensores por 40 s deu **238 req/s, p50 8,2 ms, p95 33,3 ms, p99 53,9 ms e 0% de erros** (9999 respostas `201`). A segunda réplica dobra a capacidade e tira a API da saturação: o p95 cai de cerca de 3,3 s para 33 ms.
+
+A execução oficial do relatório é feita na VPS e fica com a infraestrutura ([integracao-infra.md](integracao-infra.md), seção 11). O resultado na VPS depende de haver CPU para as duas réplicas.
 
 ## 11. Simulador e imagens Docker
 
@@ -535,13 +558,23 @@ As duas partem de `python:3.12-slim` e rodam com o usuário `app` (`uid 10001`).
 
 O `uvicorn-log.json` põe os logs do uvicorn no mesmo formato dos logs da aplicação, com timestamp e em stdout (os de acesso também).
 
+### 11.3 Docker Compose
+
+O [docker-compose.yml](../docker-compose.yml) da raiz sobe o sistema inteiro: `postgres` (volume `pgdata`, sem porta publicada), `migrate` (one-shot), `api` com 2 réplicas e healthcheck, `worker`, `simulador` e `nginx`. A ordem é `postgres` healthy → `migrate` concluído com sucesso → `api` e `worker` → `nginx` (depois das réplicas healthy) → `simulador`. Foi feito pelo backend a pedido da infra, que passa a mantê-lo. Como subir: [integracao-infra.md](integracao-infra.md), seção 0. Ensaio: seção 10.3.
+
+Decisões:
+
+- **Variáveis por serviço:** cada serviço recebe só o que usa, em vez de um `env_file` com todos os segredos em todos os containers. As obrigatórias usam `${VAR:?}`, então o compose não sobe sem elas.
+- **`DATABASE_URL` montada** a partir de `POSTGRES_USER`, `POSTGRES_PASSWORD` e `POSTGRES_DB`, para a senha existir num lugar só. Por isso a senha precisa ser só letras e números.
+- **Nginx mínimo** em [infra/nginx/default.conf](../infra/nginx/default.conf): balanceamento entre as réplicas, `proxy_connect_timeout 2s` e retentativa na outra réplica para as rotas idempotentes, sem `http_503`, para o 503 da API (banco fora) chegar ao cliente. HTTPS e rate limit ficam com a infra.
+- **Rotação de logs** (`json-file`, 3 × 10 MB por serviço), para os logs não encherem o disco da VPS.
+
 ## 12. Pendências
 
 Backend: textos do relatório (etapa 9).
 
 Pontos para a infraestrutura, já descritos em [integracao-infra.md](integracao-infra.md):
 
-- `docker-compose.yml` com os serviços `api` (2 réplicas), `worker`, `migrate` e `simulador`, usando as imagens da seção 11.2.
-- O Nginx precisa repassar `/docs` e `/openapi.json` para o Swagger funcionar.
+- HTTPS e rate limit no Nginx ([infra/nginx/default.conf](../infra/nginx/default.conf) é a versão mínima).
 - O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`, e pode rodar também os testes do simulador.
 - Teste de desempenho na VPS: `SEED_PACIENTES=500`, rate limit de `/leituras` que comporte 250 req/s de um único IP (ou desligado durante o teste), simulador parado e `docker stats` durante cada cenário.

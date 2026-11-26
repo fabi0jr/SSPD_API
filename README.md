@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Backend e simulador já têm imagem Docker, e há um teste de carga com k6; o Docker Compose fica com a infraestrutura.
+Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Tudo sobe com um `docker compose up`: PostgreSQL, migrations, duas réplicas da API atrás do Nginx, worker e simulador. Também há um teste de carga com k6.
 
 | Parte | Situação |
 |---|---|
@@ -21,9 +21,9 @@ Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | Worker de alertas (ciclo periódico, logs e encerramento por SIGTERM) | ✅ pronto |
 | Simulador de sensores (buffer local e reenvio) | ✅ pronto |
 | Dockerfile do backend e do simulador | ✅ pronto |
-| Docker Compose | ⬜ a fazer (infraestrutura) |
+| Docker Compose (2 réplicas da API, Nginx mínimo) | ✅ pronto |
 | Teste de carga (k6) | ✅ pronto (execução na VPS com a infraestrutura) |
-| Dashboard, Nginx, HTTPS, VPS e CI/CD | ⬜ a fazer |
+| Dashboard (em outro repositório), HTTPS, rate limit, VPS e CI/CD | ⬜ a fazer |
 
 ## Arquitetura planejada
 
@@ -44,7 +44,26 @@ O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalh
 
 Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16, pytest, k6 e Docker (imagem `python:3.12-slim`).
 
+## Como subir com Docker Compose
+
+Pré-requisitos: Docker Engine com o plugin `docker compose`. Na raiz do repositório:
+
+```bash
+cp .env.example .env
+# troque no .env: POSTGRES_PASSWORD, JWT_SECRET e SENSOR_API_KEY (openssl rand -hex 32),
+# ADMIN_EMAIL e ADMIN_PASSWORD. Se a porta 80 estiver ocupada, mude HTTP_PORT.
+
+docker compose up -d --build --wait
+docker compose ps                  # migrate "Exited (0)", api-1 e api-2 "healthy"
+curl http://localhost/health       # {"status":"ok","db":"ok"}
+docker compose logs -f worker simulador
+```
+
+O Swagger fica em <http://localhost/docs>. `docker compose down` para tudo e mantém o banco; `docker compose down -v` apaga também o volume do banco. Deploy na VPS e detalhes de cada serviço: [docs/integracao-infra.md](docs/integracao-infra.md), seção 0.
+
 ## Como rodar localmente
+
+Sem Docker Compose, cada processo no terminal (útil para desenvolver o backend).
 
 Pré-requisitos: Linux ou WSL2, Git, Python 3.12 e Docker.
 
@@ -154,7 +173,7 @@ docker build -t sspd-backend ./backend       # uma imagem para api, worker e mig
 docker build -t sspd-simulador ./simulador
 ```
 
-O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a mesma imagem com outro comando. Os comandos, as variáveis e o healthcheck de cada serviço estão no [protocolo com a infra](docs/integracao-infra.md#1-serviços-do-backend). As duas imagens rodam com um usuário sem privilégios (`uid 10001`).
+O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a mesma imagem com outro comando. O [docker-compose.yml](docker-compose.yml) já usa as duas. Os comandos, as variáveis e o healthcheck de cada serviço estão no [protocolo com a infra](docs/integracao-infra.md#1-serviços-do-backend). As duas imagens rodam com um usuário sem privilégios (`uid 10001`).
 
 ## API disponível
 
@@ -255,6 +274,9 @@ simulador/
 ├── simulador.py        # sensores fictícios, buffer local e reenvio
 ├── tests/
 └── Dockerfile
+infra/nginx/
+└── default.conf        # Nginx mínimo: balanceamento entre as réplicas (HTTPS e rate limit: infra)
+docker-compose.yml      # sistema completo: postgres, migrate, api ×2, worker, simulador e nginx
 tests-carga/
 ├── leituras.js         # teste de carga do POST /leituras (k6)
 └── README.md
