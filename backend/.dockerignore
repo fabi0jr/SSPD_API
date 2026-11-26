@@ -1,0 +1,11 @@
+# Só entra na imagem o necessário para rodar (app, migrations e configs).
+.venv
+.pytest_cache
+**/__pycache__
+**/*.py[cod]
+tests
+requirements-dev.txt
+Dockerfile
+.dockerignore
+.env
+.env.*
