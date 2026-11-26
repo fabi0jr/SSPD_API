@@ -402,7 +402,7 @@ Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` 
 
 ### 10.2 Resultado
 
-Execução de 25/11/2026, em WSL2 com PostgreSQL `16-alpine`:
+Execução de 26/11/2026, em WSL2 com PostgreSQL `16-alpine`:
 
 | Execução | Resultado |
 |---|---|

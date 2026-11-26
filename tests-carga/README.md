@@ -27,7 +27,7 @@ for n in 10 100 500; do
 done
 ```
 
-- `--network host` permite usar `localhost`. Para mirar a API pela rede do Compose, troque por `--network <rede-do-compose>` e use `BASE_URL=http://nginx`.
+- `--network host` permite usar `localhost`. Com o Docker Compose na mesma máquina, use `BASE_URL=http://localhost` (o Nginx, na porta `HTTP_PORT`) e `docker compose stop simulador` antes do teste. Para mirar a API pela rede do Compose, troque por `--network sspd_default` e use `BASE_URL=http://nginx`.
 - `-u "$(id -u)"` faz o k6 gravar o resumo com o seu usuário. Sem essa opção, o container não tem permissão para escrever em `resultados/`.
 - Com `SENSORES=500`, o banco precisa de 500 pacientes (`SEED_PACIENTES=500` no `migrate`). Um paciente inexistente gera 404.
 

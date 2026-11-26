@@ -1,8 +1,8 @@
 # Protocolo de integração: dashboard ↔ API
 
-Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, etapa 7 do backend.
+Contrato entre o dashboard (front) e a API do backend. Estado em 26/11/2026: backend completo e sistema subindo com o Docker Compose. O dashboard fica em **outro repositório** e consome a API só por HTTP, pelo contrato abaixo.
 
-**Fonte da verdade:** o Swagger em `/docs` e o contrato OpenAPI em `/openapi.json`. Se este texto e o Swagger divergirem, vale o Swagger, e o backend precisa corrigir este arquivo. Os tipos TypeScript podem ser gerados do contrato, por exemplo com `npx openapi-typescript http://localhost:8000/openapi.json -o src/api/tipos.ts`.
+**Fonte da verdade:** o Swagger em `/docs` e o contrato OpenAPI em `/openapi.json`. Se este texto e o Swagger divergirem, vale o Swagger, e o backend precisa corrigir este arquivo. Os tipos TypeScript podem ser gerados do contrato, por exemplo com `npx openapi-typescript http://localhost/openapi.json -o src/api/tipos.ts` (com o Compose; sem ele, `http://localhost:8000/openapi.json`).
 
 > Todos os pacientes são **fictícios** (LGPD: dados de saúde são dados pessoais sensíveis). O dashboard não deve permitir cadastrar dados reais.
 
@@ -10,12 +10,13 @@ Contrato entre o dashboard (front) e a API do backend. Estado em 25/11/2026, eta
 
 | Ambiente | URL base |
 |---|---|
-| Local | `http://localhost:8000` (subir conforme o [README](../README.md#como-rodar-localmente)) |
+| Local com Docker Compose (recomendado) | `http://localhost`, o Nginx na porta `HTTP_PORT` (padrão 80). Subir conforme o [README](../README.md#como-subir-com-docker-compose) |
+| Local sem Compose | `http://localhost:8000` (subir conforme o [README](../README.md#como-rodar-localmente)) |
 | VPS | o domínio HTTPS do Nginx (definido pela infra) |
 
 Deixe a URL base configurável (ex.: `VITE_API_URL`), sem fixar no código.
 
-**CORS:** a origem do dashboard (ex.: `http://localhost:5173` ou `https://dominio-do-dashboard`) precisa estar em `CORS_ORIGINS` na API. Se o Nginx servir o dashboard e a API no mesmo domínio, o CORS nem entra em jogo. Métodos liberados: `GET`, `POST` e `PATCH`. Headers liberados: `Authorization` e `Content-Type`. O header `Retry-After` é exposto ao JavaScript. Todas as respostas, inclusive 401, 503 e 500, levam os headers de CORS, então o front sempre consegue ler o status e o corpo.
+**CORS:** a origem do dashboard (ex.: `http://localhost:5173` ou `https://dominio-do-dashboard`) precisa estar em `CORS_ORIGINS` na API. O `.env.example` já traz `CORS_ORIGINS=http://localhost:5173`, a porta padrão do Vite, então o front em desenvolvimento funciona com o Compose sem mudar nada. Como o dashboard está em outro repositório, na VPS há duas saídas, a combinar com a infra: servir o build do front pelo mesmo Nginx e domínio da API (aí o CORS nem entra em jogo) ou hospedá-lo em outro domínio, que então vai em `CORS_ORIGINS`. Métodos liberados: `GET`, `POST` e `PATCH`. Headers liberados: `Authorization` e `Content-Type`. O header `Retry-After` é exposto ao JavaScript. Todas as respostas, inclusive 401, 503 e 500, levam os headers de CORS, então o front sempre consegue ler o status e o corpo.
 
 ## 2. Autenticação
 
@@ -169,7 +170,8 @@ O worker avalia as leituras a cada `WORKER_INTERVALO` segundos (padrão 2), ent�
 ## 6. Estado atual e testes locais
 
 - Todas as rotas acima estão prontas (backend, etapa 5).
-- O worker de alertas está pronto (etapa 6). Para ver alertas no ambiente local, suba o worker como no [README](../README.md#6-iniciar-o-worker-de-alertas) e envie uma leitura alterada (por exemplo `"spo2": 85`): o alerta aparece em `GET /alertas` no ciclo seguinte, e a leitura passa a `processada: true`.
+- **Jeito mais simples de ter dados para a tela:** `docker compose up -d --build --wait` na raiz deste repositório ([README](../README.md#como-subir-com-docker-compose)). Sobem a API (2 réplicas atrás do Nginx), o worker e o simulador com 10 sensores: em poucos segundos há leituras e alertas, sem nenhum passo manual. O login é o `ADMIN_EMAIL` / `ADMIN_PASSWORD` do `.env`.
+- Sem o Compose, cada processo sobe à mão. O worker de alertas está pronto (etapa 6). Para ver alertas no ambiente local, suba o worker como no [README](../README.md#6-iniciar-o-worker-de-alertas) e envie uma leitura alterada (por exemplo `"spo2": 85`): o alerta aparece em `GET /alertas` no ciclo seguinte, e a leitura passa a `processada: true`.
 
 - O simulador de sensores está pronto (etapa 7). Para ter leituras contínuas no ambiente local, rode-o como no [README](../README.md#7-iniciar-o-simulador-de-sensores): os pacientes com final 3 (P003, P013...) têm febre frequente e os com final 7 (P007...) têm SpO₂ baixa de vez em quando, então há alertas para mostrar. Leituras avulsas continuam possíveis com o `curl` do [README](../README.md#5-testar).
 
