@@ -27,7 +27,7 @@ Entrega no Google Classroom: relatório em PDF, slides, link do GitHub, evidênc
 | Amigo 1 | VPS, Docker, Nginx, HTTPS, UFW, SSH, GitHub Actions, deploy, backups, execução dos testes de desempenho e de falha | `/infra`, `.github/workflows` |
 | Amigo 2 | Dashboard, montagem do relatório ABNT e slides | `/dashboard`, `/docs` |
 
-**Regra:** não alterar `/dashboard`, `/infra` nem `.github/workflows` sem pedido explícito. Se uma mudança no backend exigir algo nessas pastas (porta, variável de ambiente, healthcheck), avisar e descrever a mudança necessária. O `docker-compose.yml` da raiz é mantido pelo Amigo 1.
+**Regra:** não alterar `/dashboard`, `/infra` nem `.github/workflows` sem pedido explícito. Se uma mudança no backend exigir algo nessas pastas (porta, variável de ambiente, healthcheck), avisar e descrever a mudança necessária. O `docker-compose.yml` da raiz e o Nginx mínimo em `infra/nginx/default.conf` foram feitos pelo Gerson **a pedido do Amigo 1** (branch `feat/compose`); daqui em diante são mantidos pelo Amigo 1 (mudanças neles seguem a regra acima).
 
 ## Arquitetura
 
@@ -40,7 +40,7 @@ Entrega no Google Classroom: relatório em PDF, slides, link do GitHub, evidênc
 [Dashboard] --HTTP + JWT--> [Nginx] --> [API] ----------------------
 ```
 
-Serviços (Docker Compose): `simulador`, `api` (stateless, 2 réplicas), `worker`, `postgres` (volume nomeado), `migrate` (one-shot, antes da API), `dashboard` e `nginx`.
+Serviços (Docker Compose): `simulador`, `api` (stateless, 2 réplicas), `worker`, `postgres` (volume nomeado), `migrate` (one-shot, antes da API) e `nginx`. O dashboard fica em `/dashboard`, neste repositório, e consome a API só por HTTP (contrato em `docs/integracao-dashboard.md`; o front se adapta à API).
 
 Decisão: **sem broker de mensagens**. A fila é a tabela `leituras` (`processada = false`): se o worker cair, as leituras se acumulam e são processadas quando ele volta.
 
@@ -108,7 +108,8 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 | 5 | Login + JWT, rotas GET de pacientes, leituras e alertas, `PATCH` de alertas (consultas e `ReconhecerAlerta`) | ✅ na `dev` (PR #7) |
 | 6 | Adaptador de entrada do worker (loop, logs, SIGTERM) | ✅ na `dev` (PR #8) |
 | 7 | Dockerfile do backend (uma imagem para api, worker e migrate) e do simulador; ajustes no simulador | ✅ na `dev` (PRs #9 e #10) |
-| 8 | Script k6 | ✅ branch `feat/carga` (aguardando PR) |
+| 8 | Script k6 | ✅ na `dev` (PR #11) |
+| extra | `docker-compose.yml` e Nginx mínimo, a pedido do Amigo 1 (ensaiados com os 4 cenários de falha) | ✅ branch `feat/compose` (aguardando PR) |
 | 9 | Textos do relatório em `docs/backend.md`: arquitetura (diagrama e regra de dependência), modelagem, regras de alerta, tolerância a falhas e segurança | parcial (cobre 1 a 8) |
 
 ## Fora de escopo (não fazer, a menos que sobre tempo)

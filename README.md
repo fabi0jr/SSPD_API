@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Backend e simulador já têm imagem Docker, e há um teste de carga com k6; o Docker Compose fica com a infraestrutura.
+Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Tudo sobe com um `docker compose up`: PostgreSQL, migrations, duas réplicas da API atrás do Nginx, worker e simulador. Também há um teste de carga com k6.
 
 | Parte | Situação |
 |---|---|
@@ -21,11 +21,12 @@ Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | Worker de alertas (ciclo periódico, logs e encerramento por SIGTERM) | ✅ pronto |
 | Simulador de sensores (buffer local e reenvio) | ✅ pronto |
 | Dockerfile do backend e do simulador | ✅ pronto |
-| Docker Compose | ⬜ a fazer (infraestrutura) |
+| Docker Compose (2 réplicas da API, Nginx mínimo) | ✅ pronto |
 | Teste de carga (k6) | ✅ pronto (execução na VPS com a infraestrutura) |
-| Dashboard, Nginx, HTTPS, VPS e CI/CD | ⬜ a fazer |
+| Dashboard (`dashboard/`, primeira versão em andamento) | 🟡 em andamento |
+| HTTPS, rate limit, VPS e CI/CD | ⬜ a fazer |
 
-## Arquitetura planejada
+## Arquitetura
 
 ```
 [Simulador de sensores] --HTTP POST + API key--> [Nginx] --> [API réplica 1]
@@ -36,6 +37,8 @@ Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 [Dashboard] --HTTP + JWT--> [Nginx] --> [API] ----------------------
 ```
 
+Tudo está neste repositório. O backend, o simulador e o Nginx sobem com o [docker-compose.yml](docker-compose.yml). O dashboard fica em `dashboard/` e conversa com a API só por HTTP, pelo contrato descrito em [docs/integracao-dashboard.md](docs/integracao-dashboard.md).
+
 Não há broker de mensagens: a fila do worker é a própria tabela `leituras` (`processada = false`). Se o worker parar, as leituras se acumulam no banco e são processadas quando ele voltar.
 
 O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalhes estão em [docs/backend.md](docs/backend.md).
@@ -44,7 +47,26 @@ O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalh
 
 Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16, pytest, k6 e Docker (imagem `python:3.12-slim`).
 
+## Como subir com Docker Compose
+
+Pré-requisitos: Docker Engine com o plugin `docker compose`. Na raiz do repositório:
+
+```bash
+cp .env.example .env
+# troque no .env: POSTGRES_PASSWORD, JWT_SECRET e SENSOR_API_KEY (openssl rand -hex 32),
+# ADMIN_EMAIL e ADMIN_PASSWORD. Se a porta 80 estiver ocupada, mude HTTP_PORT.
+
+docker compose up -d --build --wait
+docker compose ps                  # migrate "Exited (0)", api-1 e api-2 "healthy"
+curl http://localhost/health       # {"status":"ok","db":"ok"}
+docker compose logs -f worker simulador
+```
+
+O Swagger fica em <http://localhost/docs>. `docker compose down` para tudo e mantém o banco; `docker compose down -v` apaga também o volume do banco. Deploy na VPS e detalhes de cada serviço: [docs/integracao-infra.md](docs/integracao-infra.md), seção 0.
+
 ## Como rodar localmente
+
+Sem Docker Compose, cada processo no terminal (útil para desenvolver o backend).
 
 Pré-requisitos: Linux ou WSL2, Git, Python 3.12 e Docker.
 
@@ -154,7 +176,7 @@ docker build -t sspd-backend ./backend       # uma imagem para api, worker e mig
 docker build -t sspd-simulador ./simulador
 ```
 
-O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a mesma imagem com outro comando. Os comandos, as variáveis e o healthcheck de cada serviço estão no [protocolo com a infra](docs/integracao-infra.md#1-serviços-do-backend). As duas imagens rodam com um usuário sem privilégios (`uid 10001`).
+O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a mesma imagem com outro comando. O [docker-compose.yml](docker-compose.yml) já usa as duas. Os comandos, as variáveis e o healthcheck de cada serviço estão no [protocolo com a infra](docs/integracao-infra.md#1-serviços-do-backend). As duas imagens rodam com um usuário sem privilégios (`uid 10001`).
 
 ## API disponível
 
@@ -176,7 +198,8 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 
 | Variável | Usada por | Obrigatória | Descrição |
 |---|---|---|---|
-| `DATABASE_URL` | API, worker, migrations, seed | sim | Conexão com o PostgreSQL. Caracteres especiais na senha vão codificados (`@` → `%40`) |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Compose (`postgres`) | só a senha | Usuário, senha e banco do PostgreSQL. A senha só com letras e números (`openssl rand -hex 32`), porque o Compose a põe na `DATABASE_URL` sem codificação |
+| `DATABASE_URL` | API, worker, migrations, seed | sim | Conexão com o PostgreSQL. No Compose, é montada a partir das `POSTGRES_*` (não declarar no `.env`). Fora dele, caracteres especiais na senha vão codificados (`@` → `%40`) |
 | `SENSOR_API_KEY` | API, simulador | sim | Chave exigida dos sensores (o mesmo valor nos dois) |
 | `JWT_SECRET` | API | sim | Segredo que assina os tokens; no mínimo 32 caracteres |
 | `JWT_EXP_MINUTES` | API | não (padrão `60`) | Validade do token, em minutos |
@@ -185,9 +208,10 @@ O contrato completo, com validações e códigos de erro, está em [docs/backend
 | `SEED_PACIENTES` | seed | não (padrão `50`) | Quantidade de pacientes fictícios |
 | `WORKER_INTERVALO` | worker | não (padrão `2`) | Segundos entre um ciclo e outro (inteiro maior que zero) |
 | `WORKER_LOTE` | worker | não (padrão `500`) | Máximo de leituras por ciclo (inteiro maior que zero) |
-| `API_URL` | simulador | sim | URL completa do `POST /leituras`, ex. `http://nginx/leituras` |
+| `API_URL` | simulador | sim | URL completa do `POST /leituras`. No Compose, fixada em `http://nginx/leituras` |
 | `N_PACIENTES` | simulador | não (padrão `10`) | Quantidade de sensores (um por paciente, a partir de `P001`) |
 | `INTERVALO` | simulador | não (padrão `2`) | Segundos entre as leituras de cada sensor (aceita fração, ex. `0.5`) |
+| `HTTP_PORT` | Compose (`nginx`) | não (padrão `80`) | Porta do Nginx publicada no host |
 | `TEST_DATABASE_URL` | testes de integração | não | Banco **descartável**: os testes apagam as tabelas |
 
 Todas estão no [.env.example](.env.example). Nunca commite o arquivo `.env`.
@@ -209,7 +233,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 .venv/bin/python -m pytest -q
 ```
 
-Último resultado (25/11/2026): **270 testes passando**, sendo 228 unitários e 42 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
+Último resultado (26/11/2026): **270 testes passando**, sendo 228 unitários e 42 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
 Testes do simulador (unitários, sem rede), dentro de `simulador/`. Qualquer ambiente com pytest serve, inclusive o venv do backend:
 
@@ -217,7 +241,7 @@ Testes do simulador (unitários, sem rede), dentro de `simulador/`. Qualquer amb
 ../backend/.venv/bin/python -m pytest -q
 ```
 
-Último resultado (25/11/2026): **35 testes passando**.
+Último resultado (26/11/2026): **35 testes passando**.
 
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
@@ -231,6 +255,8 @@ docker run --rm --network host -u "$(id -u)" -v "$PWD":/carga -w /carga \
   -e API_KEY=chave-local -e SENSORES=10 -e N_PACIENTES=10 \
   grafana/k6:2.3.0 run -q leituras.js
 ```
+
+Com o Docker Compose, acrescente `-e BASE_URL=http://localhost` (com a porta, se `HTTP_PORT` não for 80), use em `API_KEY` o `SENSOR_API_KEY` do `.env` e pare o simulador antes (`docker compose stop simulador`), para medir só a carga do k6.
 
 Cada usuário virtual é um sensor que envia uma leitura a cada 2 s. O resumo (latência p50/p95/p99, requisições por segundo e taxa de erro) aparece no terminal e é salvo em `tests-carga/resultados/`. Cenários, variáveis e cuidados: [tests-carga/README.md](tests-carga/README.md).
 
@@ -255,6 +281,10 @@ simulador/
 ├── simulador.py        # sensores fictícios, buffer local e reenvio
 ├── tests/
 └── Dockerfile
+infra/nginx/
+└── default.conf        # Nginx mínimo: balanceamento entre as réplicas (HTTPS e rate limit: infra)
+docker-compose.yml      # sistema completo: postgres, migrate, api ×2, worker, simulador e nginx
+dashboard/              # front (consome a API pelo contrato de docs/integracao-dashboard.md)
 tests-carga/
 ├── leituras.js         # teste de carga do POST /leituras (k6)
 └── README.md

@@ -1,0 +1,142 @@
+# Sistema de monitoramento de pacientes: todos os serviços do backend.
+#
+# Uso (na raiz do repositório, com o .env preenchido a partir do .env.example):
+#   docker compose up -d --build      # sobe tudo
+#   docker compose ps                 # migrate "exited (0)", api ×2 "healthy"
+#   docker compose logs -f api worker simulador
+#   docker compose down               # para tudo (o volume do banco fica)
+#
+# Contrato completo com a infra: docs/integracao-infra.md.
+#
+# Cada serviço recebe só as variáveis de que precisa (nada de env_file com
+# todos os segredos em todos os containers). As obrigatórias usam ${VAR:?},
+# então o compose se recusa a subir se alguma faltar no .env.
+
+name: sspd
+
+# Logs com rotação: sem isso, o json-file do Docker cresce até encher o disco da VPS.
+x-logs: &logs
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+# Uma imagem para api, worker e migrate (backend/Dockerfile); só muda o comando.
+x-backend: &backend
+  <<: *logs
+  build: ./backend
+  image: sspd-backend:latest
+  restart: unless-stopped
+
+# Montada a partir das variáveis do Postgres, para não haver duas cópias da senha.
+# A senha vai na URL sem codificação: use só letras e números (openssl rand -hex 32).
+x-database-url: &database-url
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-monitor}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-monitor}
+
+services:
+  postgres:
+    <<: *logs
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-monitor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-monitor}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Sem "ports": o banco só é acessível dentro da rede do Compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot: migrations e seed (idempotente) antes da API e do worker.
+  # Só ele roda migrations, para as duas réplicas não aplicarem a mesma ao mesmo tempo.
+  migrate:
+    <<: *backend
+    command: ["sh", "-c", "alembic upgrade head && python -m app.seed"]
+    environment:
+      <<: *database-url
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?defina ADMIN_EMAIL no .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?defina ADMIN_PASSWORD no .env}
+      SEED_PACIENTES: ${SEED_PACIENTES:-50}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Duas réplicas atrás do Nginx. Comando: o padrão da imagem (não sobrescrever,
+  # ele traz --proxy-headers e --log-config). Sem "ports": a porta 8000 não pode
+  # ser publicada, porque a API confia no X-Forwarded-For (--forwarded-allow-ips=*).
+  api:
+    <<: *backend
+    deploy:
+      replicas: 2
+    environment:
+      <<: *database-url
+      SENSOR_API_KEY: ${SENSOR_API_KEY:?defina SENSOR_API_KEY no .env}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      JWT_EXP_MINUTES: ${JWT_EXP_MINUTES:-60}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # A imagem não tem curl. urlopen falha com 503, então a réplica fica
+    # "unhealthy" enquanto o banco estiver fora (esperado no teste de falha).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+  # Forma exec (lista), sem sh -c: o Python recebe o SIGTERM do docker stop.
+  worker:
+    <<: *backend
+    command: ["python", "-m", "app.composicao", "worker"]
+    environment:
+      <<: *database-url
+      WORKER_INTERVALO: ${WORKER_INTERVALO:-2}
+      WORKER_LOTE: ${WORKER_LOTE:-500}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Sensores fictícios. Apontam para o Nginx, e não para uma réplica: é isso que
+  # permite derrubar uma réplica no teste de falha sem o simulador perceber.
+  # Parar durante o teste de carga: docker compose stop simulador
+  simulador:
+    <<: *logs
+    build: ./simulador
+    image: sspd-simulador:latest
+    environment:
+      API_URL: http://nginx/leituras
+      SENSOR_API_KEY: ${SENSOR_API_KEY:?defina SENSOR_API_KEY no .env}
+      N_PACIENTES: ${N_PACIENTES:-10}
+      INTERVALO: ${INTERVALO:-2}
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+  # Proxy reverso e balanceador entre as réplicas. Configuração mínima em
+  # infra/nginx/default.conf; HTTPS e rate limit ficam com a infra.
+  nginx:
+    <<: *logs
+    image: nginx:1.28-alpine
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    # A pasta, e não o arquivo: um bind mount de arquivo fica preso à versão
+    # antiga quando o editor grava um arquivo novo. Depois de editar:
+    #   docker compose exec nginx nginx -s reload
+    volumes:
+      - ./infra/nginx:/etc/nginx/conf.d:ro
+    # Espera as réplicas: o Nginx resolve o nome "api" (os IPs das duas) ao iniciar.
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

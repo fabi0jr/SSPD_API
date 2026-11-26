@@ -15,7 +15,8 @@ Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EX
 
 | Variável | Usada por | Exemplo |
 |---|---|---|
-| `DATABASE_URL` | api, worker, migrate | `postgresql+psycopg://monitor:senha@postgres:5432/monitor` |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | postgres (compose) | `monitor` / `openssl rand -hex 32` / `monitor`. No compose, a `DATABASE_URL` é montada a partir delas |
+| `DATABASE_URL` | api, worker, migrate | `postgresql+psycopg://monitor:senha@postgres:5432/monitor` (fora do compose) |
 | `JWT_SECRET` | api | string aleatória longa |
 | `JWT_EXP_MINUTES` | api | `60` |
 | `SENSOR_API_KEY` | api, simulador | string aleatória |
@@ -24,7 +25,8 @@ Lidas pelo código hoje: `DATABASE_URL`, `SENSOR_API_KEY`, `JWT_SECRET`, `JWT_EX
 | `SEED_PACIENTES` | seed | `50` (subir para 500 no teste de carga) |
 | `WORKER_INTERVALO` | worker | `2` (segundos) |
 | `WORKER_LOTE` | worker | `500` |
-| `API_URL` | simulador | `http://nginx/leituras` |
+| `API_URL` | simulador | `http://nginx/leituras` (fixo no compose) |
+| `HTTP_PORT` | nginx (compose) | `80` |
 | `N_PACIENTES` / `INTERVALO` | simulador | `10` / `2` (`N_PACIENTES` ≤ `SEED_PACIENTES`) |
 | `TEST_DATABASE_URL` | só testes de integração | `postgresql+psycopg://monitor:teste@localhost:55432/monitor_teste` |
 

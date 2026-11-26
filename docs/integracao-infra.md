@@ -1,6 +1,37 @@
 # Protocolo de integração: infra ↔ backend
 
-O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 26/11/2026, etapa 8 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
+O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 26/11/2026. O [docker-compose.yml](../docker-compose.yml) da raiz e uma configuração mínima do Nginx ([infra/nginx/default.conf](../infra/nginx/default.conf)) foram feitos pelo backend, a pedido da infra, e ensaiados localmente com os quatro cenários de falha ([backend.md](backend.md), seção 10.3). Daqui em diante, os dois são mantidos pela infra, assim como os workflows. HTTPS, firewall e rate limit continuam com a infra.
+
+## 0. Subir na VPS
+
+Pré-requisitos: VPS Linux com Docker Engine e o plugin `docker compose`, e as portas 80 (e 443, quando houver HTTPS) liberadas no firewall.
+
+```bash
+git clone https://github.com/fabi0jr/SSPD_API.git && cd SSPD_API
+git switch main                  # ou dev, enquanto a main não receber a dev
+
+cp .env.example .env
+# Troque no .env: POSTGRES_PASSWORD, JWT_SECRET e SENSOR_API_KEY por valores
+# de  openssl rand -hex 32 ; ADMIN_EMAIL/ADMIN_PASSWORD; CORS_ORIGINS (seção 4)
+chmod 600 .env
+
+docker compose up -d --build --wait   # espera tudo ficar healthy
+docker compose ps                     # migrate "Exited (0)", api-1 e api-2 "healthy"
+curl -fsS http://localhost/health     # {"status":"ok","db":"ok"}
+```
+
+| Serviço | Containers | Porta publicada |
+|---|---|---|
+| `postgres` | 1, volume `pgdata` | nenhuma |
+| `migrate` | 1, one-shot (termina com código 0) | nenhuma |
+| `api` | 2 réplicas (`sspd-api-1`, `sspd-api-2`) | nenhuma |
+| `worker` | 1 | nenhuma |
+| `simulador` | 1 | nenhuma |
+| `nginx` | 1 | `HTTP_PORT` (80) |
+
+Atualizar depois de um merge: `git pull && docker compose up -d --build --wait`. O volume `pgdata` é mantido; **`docker compose down -v` apaga o banco**. Os logs dos containers têm rotação (3 arquivos de 10 MB por serviço).
+
+O compose recusa subir se faltar no `.env` alguma variável obrigatória (`POSTGRES_PASSWORD`, `JWT_SECRET`, `SENSOR_API_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`) e diz qual. Cada serviço recebe só as variáveis de que precisa: o simulador não vê o `JWT_SECRET`, a API não vê a senha do admin.
 
 ## 1. Serviços do backend
 
@@ -45,7 +76,8 @@ postgres (healthy) ──> migrate (completed_successfully) ──> api ×2, wor
 
 | Variável | `api` | `migrate` | `worker` | Obrigatória | Observação |
 |---|---|---|---|---|---|
-| `DATABASE_URL` | ✔ | ✔ | ✔ | sim | `postgresql+psycopg://usuario:senha@postgres:5432/monitor`. Caractere especial na senha vai codificado (`@` → `%40`, `%` → `%25`) |
+| `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | | | | só a senha | usadas pelo `postgres` e para montar a `DATABASE_URL` no compose. A senha **só com letras e números** (`openssl rand -hex 32`), porque vai na URL sem codificação |
+| `DATABASE_URL` | ✔ | ✔ | ✔ | (montada) | o compose monta `postgresql+psycopg://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB`; não declarar no `.env`. Fora do compose, caractere especial na senha vai codificado (`@` → `%40`, `%` → `%25`) |
 | `SENSOR_API_KEY` | ✔ | | | sim | a mesma no simulador. Gerar com `openssl rand -hex 32` |
 | `JWT_SECRET` | ✔ | | | sim | **no mínimo 32 caracteres**, senão a API não sobe. **O mesmo valor nas duas réplicas**, senão um token de uma é recusado pela outra. `openssl rand -hex 32` |
 | `JWT_EXP_MINUTES` | ✔ | | | não (60) | validade do token |
@@ -59,12 +91,14 @@ Simulador:
 
 | Variável | Obrigatória | Observação |
 |---|---|---|
-| `API_URL` | sim | URL completa do `POST /leituras` **pelo Nginx**, ex. `http://nginx/leituras` (o nome do serviço no Compose). Apontar para o Nginx, e não para uma réplica, é o que permite o teste de falha de uma réplica |
+| `API_URL` | (fixa) | `http://nginx/leituras`, fixada no compose. Apontar para o Nginx, e não para uma réplica, é o que permite o teste de falha de uma réplica |
 | `SENSOR_API_KEY` | sim | o mesmo valor da `api` |
 | `N_PACIENTES` | não (10) | **no máximo `SEED_PACIENTES`**: os sensores usam `P001`, `P002`... do seed; paciente inexistente dá 404 e a leitura é descartada |
 | `INTERVALO` | não (2) | segundos entre as leituras de cada sensor; aceita fração. Carga gerada: `N_PACIENTES / INTERVALO` requisições por segundo |
 
-Referência com todas as variáveis: [.env.example](../.env.example). Segredos só no `.env` da VPS ou nos secrets do GitHub, nunca commitados. A aplicação não lê o arquivo `.env` sozinha: o Compose precisa repassá-lo (`env_file`).
+Também há `HTTP_PORT` (padrão 80), a porta do Nginx publicada no host.
+
+Referência com todas as variáveis: [.env.example](../.env.example). Segredos só no `.env` da VPS ou nos secrets do GitHub, nunca commitados. A aplicação não lê o arquivo `.env` sozinha: o compose lê o `.env` da raiz e repassa a cada serviço só o que ele usa (bloco `environment`).
 
 Sem `DATABASE_URL`, `SENSOR_API_KEY` ou `JWT_SECRET` válido (ou, no worker, com `WORKER_INTERVALO` ou `WORKER_LOTE` menor ou igual a zero), o processo sai com erro de configuração já no start. O erro aparece no log com o nome da variável.
 
@@ -77,7 +111,7 @@ Sem `DATABASE_URL`, `SENSOR_API_KEY` ou `JWT_SECRET` válido (ou, no worker, com
 | 200 `{"status":"ok","db":"ok"}` | API e banco no ar |
 | 503 `{"status":"degradado","db":"indisponivel"}` | API no ar, banco fora |
 
-A imagem `python:3.12-slim` não tem `curl`. Healthcheck sugerido no Compose:
+A imagem `python:3.12-slim` não tem `curl`. Healthcheck usado no compose:
 
 ```yaml
 healthcheck:
@@ -94,17 +128,15 @@ healthcheck:
 
 O simulador não tem porta nem healthcheck. Ele pode subir antes da API: até ela responder, as leituras ficam no buffer e são reenviadas depois. Basta `restart: unless-stopped` e `depends_on: [nginx]` (sem condição). Se o `API_URL` usar `https`, o certificado precisa ser válido para o nome usado; dentro da rede do Compose, `http://nginx/leituras` evita isso.
 
-Esboço (o arquivo é da infra; nomes e redes podem mudar):
-
-```yaml
-simulador:
-  build: ./simulador
-  env_file: .env          # API_URL, SENSOR_API_KEY, N_PACIENTES, INTERVALO
-  depends_on: [nginx]
-  restart: unless-stopped
-```
+No compose, o simulador tem `restart: unless-stopped` e `depends_on: [nginx]`.
 
 ## 4. Nginx
+
+A configuração mínima está em [infra/nginx/default.conf](../infra/nginx/default.conf): upstream `api:8000` (o DNS do Docker devolve os IPs das duas réplicas e o Nginx alterna entre eles), headers de proxy, `proxy_connect_timeout 2s` e retentativa na outra réplica. Falta a parte da infra: HTTPS e rate limit.
+
+- O compose monta a **pasta** `infra/nginx` em `/etc/nginx/conf.d`. Depois de editar: `docker compose exec nginx nginx -s reload`. (Montando só o arquivo, o container continuaria vendo a versão antiga depois de uma edição.)
+- O Nginx resolve o nome `api` quando inicia. Se as réplicas forem **recriadas** (`up --force-recreate`, mudança de imagem), reinicie o `nginx` também. Um `docker stop`/`start` mantém o IP e não exige isso (conferido no ensaio).
+- `location /alertas` fica **sem barra no fim**: com `location /alertas/`, o Nginx responde 301 ao `GET /alertas`.
 
 Rotas que o Nginx deve repassar para o upstream das réplicas (porta 8000):
 
@@ -120,7 +152,7 @@ Recomendações:
 - Repassar `Host`, `X-Forwarded-For` e `X-Forwarded-Proto` (a API roda com `--proxy-headers`).
 - Não remover os headers `Authorization` e `X-API-Key`.
 - **Rate limit** mais apertado em `POST /auth/login` (força bruta de senha, ex. 5 req/min por IP) e mais folgado em `/leituras` (os sensores mandam a cada `INTERVALO` segundos; no teste de carga são 500 sensores **saindo de um único IP**, ver seção 11).
-- **Retentativa entre réplicas:** o `POST /leituras` e o `PATCH /alertas/{id}` são idempotentes, então é seguro o Nginx reenviar para a outra réplica quando uma cai no meio da requisição (`proxy_next_upstream error timeout http_502 http_503 non_idempotent;` no `location /leituras`). Não usar `non_idempotent` em `POST /pacientes` (o reenvio dá 409).
+- **Retentativa entre réplicas:** o `POST /leituras` e o `PATCH /alertas/{id}` são idempotentes, então é seguro o Nginx reenviar para a outra réplica quando uma cai no meio da requisição (`proxy_next_upstream error timeout http_502 non_idempotent;`). **Sem `http_503`:** o 503 da API significa banco fora (as duas réplicas respondem igual), e com `http_503` o Nginx marcaria as duas como falhas e trocaria o 503 com `Retry-After` por um 502. Não usar `non_idempotent` em `POST /pacientes` (o reenvio dá 409).
 - Se o dashboard for servido pelo mesmo domínio, o CORS não é necessário; se for outro domínio, ele precisa estar em `CORS_ORIGINS`.
 - O Postgres **não** deve ser exposto fora da rede do Compose.
 
@@ -234,6 +266,6 @@ done
 
 Cada cenário dura 1 minuto e gera `SENSORES / 2` req/s (5, 50 e 250). O resumo de cada um fica em `tests-carga/resultados/*.json`, com latência p50/p95/p99, requisições por segundo, taxa de erro e respostas por classe; esses arquivos vão para o relatório. Rodando o k6 na própria VPS, ele disputa a CPU com a API: se houver outra máquina disponível, prefira ela e registre de onde o teste foi feito.
 
-Referência medida em WSL2 (`docs/backend.md`, seção 10.4): **um** processo uvicorn sustenta cerca de 165 req/s nesta rota, limitado pela CPU do Python (o PostgreSQL fica quase ocioso). Com 2 réplicas, o esperado é aguentar os 250 req/s do cenário de 500 sensores, desde que a VPS tenha pelo menos 2 vCPUs livres para elas. Se não aguentar, a latência sobe e a taxa de requisições fica abaixo de 250/s, sem erros: é o ponto de saturação e vale como resultado no relatório.
+Referência medida em WSL2 (`docs/backend.md`, seção 10.4): **um** processo uvicorn sustenta cerca de 165 req/s nesta rota, limitado pela CPU do Python (o PostgreSQL fica quase ocioso). Com este compose (2 réplicas atrás do Nginx), os 500 sensores passaram com 238 req/s e p95 de 33 ms, sem erros. Na VPS, isso depende de haver pelo menos 2 vCPUs para as réplicas. Se não aguentar, a latência sobe e a taxa de requisições fica abaixo de 250/s, sem erros: é o ponto de saturação e vale como resultado no relatório.
 
 Mudanças neste contrato (porta, variável, comando ou healthcheck) serão avisadas antes, e este arquivo será atualizado no mesmo PR.
