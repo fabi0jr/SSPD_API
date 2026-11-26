@@ -1,6 +1,6 @@
 # Protocolo de integração: infra ↔ backend
 
-O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 25/11/2026, etapa 7 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
+O que o backend precisa da infraestrutura (Docker Compose, Nginx, VPS e CI) e o que ele oferece em troca. Estado em 26/11/2026, etapa 8 do backend. O `docker-compose.yml`, o Nginx e os workflows são mantidos pela infra; este arquivo só descreve o contrato.
 
 ## 1. Serviços do backend
 
@@ -119,7 +119,7 @@ Recomendações:
 
 - Repassar `Host`, `X-Forwarded-For` e `X-Forwarded-Proto` (a API roda com `--proxy-headers`).
 - Não remover os headers `Authorization` e `X-API-Key`.
-- **Rate limit** mais apertado em `POST /auth/login` (força bruta de senha, ex. 5 req/min por IP) e mais folgado em `/leituras` (os sensores mandam a cada `INTERVALO` segundos; no teste de carga são 500 sensores).
+- **Rate limit** mais apertado em `POST /auth/login` (força bruta de senha, ex. 5 req/min por IP) e mais folgado em `/leituras` (os sensores mandam a cada `INTERVALO` segundos; no teste de carga são 500 sensores **saindo de um único IP**, ver seção 11).
 - **Retentativa entre réplicas:** o `POST /leituras` e o `PATCH /alertas/{id}` são idempotentes, então é seguro o Nginx reenviar para a outra réplica quando uma cai no meio da requisição (`proxy_next_upstream error timeout http_502 http_503 non_idempotent;` no `location /leituras`). Não usar `non_idempotent` em `POST /pacientes` (o reenvio dá 409).
 - Se o dashboard for servido pelo mesmo domínio, o CORS não é necessário; se for outro domínio, ele precisa estar em `CORS_ORIGINS`.
 - O Postgres **não** deve ser exposto fora da rede do Compose.
@@ -206,5 +206,34 @@ Testes do simulador, dentro de `simulador/` (sem banco nem rede):
 pip install -r requirements-dev.txt
 pytest -q
 ```
+
+## 11. Teste de desempenho (k6)
+
+O script fica em `tests-carga/leituras.js` e roda com a imagem `grafana/k6:2.3.0`, sem instalar nada. Passo a passo, variáveis e leitura do resultado: [tests-carga/README.md](../tests-carga/README.md).
+
+O que o teste precisa da infra:
+
+- **`SEED_PACIENTES=500`** no `migrate` antes do cenário de 500 sensores. O k6 usa `P001` a `P500`, e um paciente inexistente gera 404.
+- **Rate limit de `/leituras`:** os 500 sensores do k6 saem do mesmo IP, então um limite por IP corta o teste (o `limit_req` responde 503 por padrão). Durante o teste, o limite precisa comportar 250 req/s ou ser desligado nesse `location`. Anote no relatório qual configuração foi usada.
+- **Simulador parado** durante o teste (`docker compose stop simulador`), para a carga medida ser só a do k6.
+- **`docker stats --no-stream`** a cada poucos segundos durante cada cenário, para a CPU e a memória da `api`, do `worker` e do `postgres`.
+- **Backlog do worker** antes e depois de cada cenário, com a consulta da seção 9.
+
+Comando, dentro de `tests-carga/`, com `SENSOR_API_KEY` no ambiente:
+
+```bash
+mkdir -p resultados
+for n in 10 100 500; do
+  docker run --rm --network host -u "$(id -u)" -v "$PWD":/carga -w /carga \
+    -e BASE_URL=https://dominio -e API_KEY="$SENSOR_API_KEY" \
+    -e SENSORES=$n -e N_PACIENTES=$n \
+    grafana/k6:2.3.0 run -q leituras.js
+  sleep 30
+done
+```
+
+Cada cenário dura 1 minuto e gera `SENSORES / 2` req/s (5, 50 e 250). O resumo de cada um fica em `tests-carga/resultados/*.json`, com latência p50/p95/p99, requisições por segundo, taxa de erro e respostas por classe; esses arquivos vão para o relatório. Rodando o k6 na própria VPS, ele disputa a CPU com a API: se houver outra máquina disponível, prefira ela e registre de onde o teste foi feito.
+
+Referência medida em WSL2 (`docs/backend.md`, seção 10.4): **um** processo uvicorn sustenta cerca de 165 req/s nesta rota, limitado pela CPU do Python (o PostgreSQL fica quase ocioso). Com 2 réplicas, o esperado é aguentar os 250 req/s do cenário de 500 sensores, desde que a VPS tenha pelo menos 2 vCPUs livres para elas. Se não aguentar, a latência sobe e a taxa de requisições fica abaixo de 250/s, sem erros: é o ponto de saturação e vale como resultado no relatório.
 
 Mudanças neste contrato (porta, variável, comando ou healthcheck) serão avisadas antes, e este arquivo será atualizado no mesmo PR.

@@ -46,7 +46,7 @@ Decisão: **sem broker de mensagens**. A fila é a tabela `leituras` (`processad
 
 ## Stack
 
-Python 3.12, FastAPI + Uvicorn, SQLAlchemy 2.x **síncrono** + psycopg 3, Alembic, Pydantic v2, PyJWT + `bcrypt` direto (sem passlib), PostgreSQL 16, pytest com `fastapi.testclient` sobre **`httpx2`** (não `httpx`), k6 ou Locust para carga. Imagem base `python:3.12-slim`. Simulador só com a biblioteca padrão. Desenvolvimento em WSL2 (Ubuntu 24.04, Docker Engine no Ubuntu, sem Docker Desktop), em `~/SSPD_API`.
+Python 3.12, FastAPI + Uvicorn, SQLAlchemy 2.x **síncrono** + psycopg 3, Alembic, Pydantic v2, PyJWT + `bcrypt` direto (sem passlib), PostgreSQL 16, pytest com `fastapi.testclient` sobre **`httpx2`** (não `httpx`), k6 para carga (imagem `grafana/k6:2.3.0`, sem instalar). Imagem base `python:3.12-slim`. Simulador só com a biblioteca padrão. Desenvolvimento em WSL2 (Ubuntu 24.04, Docker Engine no Ubuntu, sem Docker Desktop), em `~/SSPD_API`.
 
 ## Regra de dependência (obrigatória)
 
@@ -107,9 +107,9 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 | 4 | `composicao.py` + HTTP: `/health` e `POST /leituras` com API key | ✅ na `dev` (PR #5) |
 | 5 | Login + JWT, rotas GET de pacientes, leituras e alertas, `PATCH` de alertas (consultas e `ReconhecerAlerta`) | ✅ na `dev` (PR #7) |
 | 6 | Adaptador de entrada do worker (loop, logs, SIGTERM) | ✅ na `dev` (PR #8) |
-| 7 | Dockerfile do backend (uma imagem para api, worker e migrate) e do simulador; ajustes no simulador | ✅ branch `feat/empacotamento` (aguardando PR) |
-| 8 | Script k6 | a fazer |
-| 9 | Textos do relatório em `docs/backend.md`: arquitetura (diagrama e regra de dependência), modelagem, regras de alerta, tolerância a falhas e segurança | parcial (cobre 1 a 7) |
+| 7 | Dockerfile do backend (uma imagem para api, worker e migrate) e do simulador; ajustes no simulador | ✅ na `dev` (PRs #9 e #10) |
+| 8 | Script k6 | ✅ branch `feat/carga` (aguardando PR) |
+| 9 | Textos do relatório em `docs/backend.md`: arquitetura (diagrama e regra de dependência), modelagem, regras de alerta, tolerância a falhas e segurança | parcial (cobre 1 a 8) |
 
 ## Fora de escopo (não fazer, a menos que sobre tempo)
 

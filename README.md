@@ -9,7 +9,7 @@ Sensores enviam sinais vitais (frequência cardíaca, SpO₂ e temperatura) de p
 
 ## Estado atual
 
-Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Backend e simulador já têm imagem Docker; o Docker Compose fica com a infraestrutura.
+Situação em 26/11/2026. O projeto está em desenvolvimento: hoje a API **recebe e grava leituras** e atende o dashboard (login, pacientes, histórico e alertas), o worker **gera os alertas** a partir das leituras pendentes e o simulador **envia leituras** de sensores fictícios. Backend e simulador já têm imagem Docker, e há um teste de carga com k6; o Docker Compose fica com a infraestrutura.
 
 | Parte | Situação |
 |---|---|
@@ -22,7 +22,7 @@ Situação em 25/11/2026. O projeto está em desenvolvimento: hoje a API **receb
 | Simulador de sensores (buffer local e reenvio) | ✅ pronto |
 | Dockerfile do backend e do simulador | ✅ pronto |
 | Docker Compose | ⬜ a fazer (infraestrutura) |
-| Teste de carga (k6) | ⬜ a fazer |
+| Teste de carga (k6) | ✅ pronto (execução na VPS com a infraestrutura) |
 | Dashboard, Nginx, HTTPS, VPS e CI/CD | ⬜ a fazer |
 
 ## Arquitetura planejada
@@ -42,7 +42,7 @@ O backend segue uma arquitetura hexagonal leve (portas e adaptadores). Os detalh
 
 ## Tecnologias
 
-Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16, pytest e Docker (imagem `python:3.12-slim`).
+Python 3.12, FastAPI, Uvicorn, SQLAlchemy 2, psycopg 3, Alembic, Pydantic 2, bcrypt, PyJWT, PostgreSQL 16, pytest, k6 e Docker (imagem `python:3.12-slim`).
 
 ## Como rodar localmente
 
@@ -221,6 +221,19 @@ Testes do simulador (unitários, sem rede), dentro de `simulador/`. Qualquer amb
 
 > Nunca aponte `TEST_DATABASE_URL` para um banco com dados que você queira manter.
 
+### Teste de carga (k6)
+
+Com a API no ar (seção "Como rodar localmente"), dentro de `tests-carga/`:
+
+```bash
+mkdir -p resultados
+docker run --rm --network host -u "$(id -u)" -v "$PWD":/carga -w /carga \
+  -e API_KEY=chave-local -e SENSORES=10 -e N_PACIENTES=10 \
+  grafana/k6:2.3.0 run -q leituras.js
+```
+
+Cada usuário virtual é um sensor que envia uma leitura a cada 2 s. O resumo (latência p50/p95/p99, requisições por segundo e taxa de erro) aparece no terminal e é salvo em `tests-carga/resultados/`. Cenários, variáveis e cuidados: [tests-carga/README.md](tests-carga/README.md).
+
 ## Estrutura do repositório
 
 ```
@@ -242,6 +255,9 @@ simulador/
 ├── simulador.py        # sensores fictícios, buffer local e reenvio
 ├── tests/
 └── Dockerfile
+tests-carga/
+├── leituras.js         # teste de carga do POST /leituras (k6)
+└── README.md
 docs/backend.md         # documentação técnica do backend
 docs/integracao-*.md    # protocolos com o dashboard e com a infra
 ```

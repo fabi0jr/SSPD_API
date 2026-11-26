@@ -22,8 +22,9 @@ Monitoramento remoto de pacientes (trabalho acadêmico, dados fictícios): senso
 
 | `backend/Dockerfile`, `backend/uvicorn-log.json` | imagem única de api, worker e migrate; formato dos logs do uvicorn |
 | `simulador/` | `simulador.py` (só stdlib), `tests/`, `Dockerfile` |
+| `tests-carga/` | `leituras.js` (k6, roda com `grafana/k6:2.3.0` no Docker), `README.md` |
 
-**Planejado, ainda ausente:** `tests-carga/`, `dashboard/`, `infra/`, `.github/workflows/`, `docker-compose.yml`.
+**Planejado, ainda ausente:** `dashboard/`, `infra/`, `.github/workflows/`, `docker-compose.yml`.
 
 ## Technology Stack
 
@@ -44,6 +45,7 @@ Pontos de entrada existentes (dentro de `backend/`):
 | Migrations | `alembic upgrade head` |
 | Seed | `python -m app.seed` |
 | Simulador | `python simulador/simulador.py` (na raiz) |
+| Carga (k6) | `docker run ... grafana/k6:2.3.0 run leituras.js` (em `tests-carga/`, ver o README da pasta) |
 
 Sem broker: a tabela `leituras` (`processada = false`) é a fila, consumida com `FOR UPDATE SKIP LOCKED`.
 
@@ -124,4 +126,3 @@ Comandos no [CLAUDE.md](../CLAUDE.md). Execução em 25/11/2026: **270 passaram*
 
 - O modelo ABNT do professor não está no repositório.
 - Nada sobre a VPS ou o deploy é verificável por este repositório.
-- Escolha entre k6 e Locust: a estrutura planejada cita k6.

@@ -6,7 +6,7 @@ paths:
 
 # Estrutura do repositório
 
-A árvore abaixo é a estrutura **alvo**. Em 25/11/2026 ainda não existem: `docker-compose.yml`, `backend/Dockerfile`, `simulador/`, `tests-carga/`, `dashboard/` e `infra/`.
+A árvore abaixo é a estrutura **alvo**. Em 26/11/2026 ainda não existem: `docker-compose.yml`, `dashboard/` e `infra/`.
 
 ```
 /
