@@ -9,19 +9,20 @@ paths:
 
 # Contrato da API
 
-Todas as rotas abaixo estão implementadas (etapa 5). Detalhes de cada resposta: `docs/backend.md`, seção 7.
+Todas as rotas abaixo estão implementadas (etapa 5; o `POST /auth/cadastro` veio depois, na branch `feat/cadastro-usuarios`). Detalhes de cada resposta: `docs/backend.md`, seção 7.
 
 Respostas em JSON. Erros no formato padrão do FastAPI (`{"detail": ...}`). Timestamps em ISO 8601 UTC.
 
 ## Autenticação
 - **Sensores:** header `X-API-Key: <SENSOR_API_KEY>`. Só vale para `POST /leituras`.
-- **Dashboard:** `Authorization: Bearer <JWT>`, obtido em `POST /auth/login`.
+- **Dashboard:** `Authorization: Bearer <JWT>`, obtido em `POST /auth/login`. A conta vem do seed (admin) ou de `POST /auth/cadastro` (público).
 
 ## Endpoints
 
 | Método | Rota | Auth | Descrição |
 |---|---|---|---|
 | GET | `/health` | nenhuma | Executa `SELECT 1` no banco. Responde 200 `{"status":"ok","db":"ok"}` ou 503 `{"status":"degradado","db":"indisponivel"}` se o banco estiver fora |
+| POST | `/auth/cadastro` | nenhuma | `{"email","senha"}` → 201 `{"id","email"}`, sem token. E-mail repetido → 409 `{"detail":"e-mail já cadastrado"}`. Não idempotente |
 | POST | `/auth/login` | nenhuma | `{"email","senha"}` → `{"access_token","token_type":"bearer"}` |
 | POST | `/leituras` | API key | Grava uma leitura. Idempotente |
 | GET | `/pacientes` | JWT | Lista os pacientes com a última leitura e a quantidade de alertas abertos |
@@ -41,6 +42,7 @@ Respostas em JSON. Erros no formato padrão do FastAPI (`{"detail": ...}`). Time
 - `limit` fora de 1–1000 → 422 (o caso de uso também corta em 1000).
 - `PATCH /alertas/{id}` só aceita `reconhecido` (reabrir → 422).
 - `POST /pacientes`: 201, 409 para id repetido, 422 no formato `loc: ["body", campo]`.
+- `POST /auth/cadastro`: público por decisão do usuário (sem perfis/RBAC, toda conta vê tudo; aceitável com pacientes fictícios, registrado como limitação em `docs/backend.md`, seção 9). E-mail com os limites do login (3–120) mais um `pattern` simples de formato, sem normalizar caixa nem espaços (o login compara o texto exato); senha de 8 caracteres a 72 bytes em UTF-8; bcrypt como no admin. Conflito → `UsuarioJaExiste`. Não devolve token: o dashboard chama `/auth/login` em seguida. Unicidade garantida pelo `UNIQUE` de `usuarios.email` (sem migration nova): o insert trata o conflito, então duas réplicas com o mesmo e-mail dão um 201 e um 409. 422 no formato `loc: ["body", campo]`; 503 como as demais.
 - Timestamps de saída sempre em UTC com `Z` (`DataHoraUtc` em `schemas.py`). A leitura de saída traz `recebido_em` e `processada`.
 
 ## `POST /leituras`

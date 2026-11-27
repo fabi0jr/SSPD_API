@@ -19,7 +19,7 @@ Descreve o que está implementado em 26/11/2026. O que ainda não existe aparece
 
 ## 1. Escopo atual
 
-Em execução, o sistema hoje tem a API, o worker de alertas, o PostgreSQL e o simulador de sensores. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
+Em execução, o sistema hoje tem a API, o worker de alertas, o PostgreSQL e o simulador de sensores. A API valida e grava leituras, que ficam marcadas como pendentes (`processada = false`), e atende o dashboard: cadastro de usuário, login com JWT, consulta de pacientes, histórico de leituras, lista de alertas e reconhecimento de alertas.
 
 O worker é um processo separado da API. A cada ciclo ele reserva as leituras pendentes, aplica as regras de alerta e grava os alertas. O simulador gera leituras de pacientes fictícios e as envia para a API, guardando-as num buffer local enquanto a API estiver fora (seção 11). Backend e simulador têm imagem Docker, o sistema sobe com um `docker-compose.yml` com 2 réplicas da API atrás do Nginx (seção 11.3), e o `POST /leituras` tem um teste de carga com k6 (seção 10.4).
 
@@ -55,7 +55,7 @@ As portas são `typing.Protocol` definidos em [portas.py](../backend/app/dominio
 | `RepositorioPacientes` | consultar, listar e criar pacientes | API |
 | `RepositorioLeituras` | gravar leituras e consultar histórico | API |
 | `RepositorioAlertas` | listar, obter e atualizar alertas | API |
-| `RepositorioUsuarios` | buscar usuário por e-mail | API (login) |
+| `RepositorioUsuarios` | buscar usuário por e-mail e criar usuário (e-mail repetido é recusado) | API (login e cadastro) |
 | `FilaPendentes` e `LotePendente` | reservar e processar leituras pendentes | worker |
 
 ### 2.3 Composição
@@ -106,7 +106,7 @@ Uma mesma leitura pode gerar mais de um alerta. Os limites são uma simplificaç
 |---|---|
 | `LeituraInvalida`, `PacienteInvalido` | 422 |
 | `PacienteNaoEncontrado`, `AlertaNaoEncontrado` | 404 |
-| `PacienteJaExiste` | 409 |
+| `PacienteJaExiste`, `UsuarioJaExiste` | 409 |
 | `CredenciaisInvalidas` | 401 |
 
 ## 4. Casos de uso
@@ -135,15 +135,23 @@ Se algo falhar no meio, a transação é desfeita e o lote é processado no cicl
 
 [autenticar.py](../backend/app/aplicacao/autenticar.py) busca o usuário pelo e-mail e confere a senha com uma função recebida no construtor (o bcrypt fica no adaptador HTTP, em [seguranca.py](../backend/app/adaptadores/entrada/http/seguranca.py)). Se o e-mail não existir, a senha é conferida mesmo assim contra um hash fictício, para o tempo de resposta não revelar quais e-mails estão cadastrados. E-mail inexistente e senha errada levantam o mesmo `CredenciaisInvalidas`.
 
-### 4.4 `CadastrarPaciente`
+### 4.4 `CadastrarUsuario`
+
+[cadastrar_usuario.py](../backend/app/aplicacao/cadastrar_usuario.py) cria um usuário do dashboard a partir de e-mail e senha (`POST /auth/cadastro`). Como no `Autenticar`, o bcrypt fica fora do caso de uso: ele recebe no construtor a função que gera o hash e grava com `RepositorioUsuarios.criar(email, senha_hash)`, de modo que a senha em claro nunca chega ao repositório. Devolve o usuário criado (`id` e `email`), sem token: o login continua sendo do `Autenticar`. O formato do e-mail e o tamanho da senha são validados antes, na borda HTTP.
+
+A unicidade do e-mail não é conferida com uma consulta antes do insert: quem garante é o índice `UNIQUE` de `usuarios.email`, que já existe desde a migration inicial. O adaptador PostgreSQL trata o conflito do insert e levanta `UsuarioJaExiste` (409, com a mensagem `e-mail já cadastrado`, que não repete o e-mail). Assim, duas réplicas cadastrando o mesmo e-mail ao mesmo tempo resultam em um 201 e um 409, e não em dois usuários.
+
+O usuário criado é igual ao administrador do seed: não há perfis, então ele tem acesso a todas as rotas do dashboard (seção 9).
+
+### 4.5 `CadastrarPaciente`
 
 [cadastrar_paciente.py](../backend/app/aplicacao/cadastrar_paciente.py) grava o paciente (já validado pela entidade) e devolve o registro gravado. Id repetido levanta `PacienteJaExiste`.
 
-### 4.5 `Consultas`
+### 4.6 `Consultas`
 
 [consultas.py](../backend/app/aplicacao/consultas.py) reúne as leituras do dashboard: lista de pacientes com resumo, última leitura, histórico e alertas. Para paciente inexistente, a última leitura e o histórico levantam `PacienteNaoEncontrado` (404) em vez de devolver vazio. O limite é cortado em 1000.
 
-### 4.6 `ReconhecerAlerta`
+### 4.7 `ReconhecerAlerta`
 
 [reconhecer_alerta.py](../backend/app/aplicacao/reconhecer_alerta.py) muda o status do alerta para `reconhecido`. É idempotente: reconhecer de novo não grava outra vez nem dá erro. Alerta inexistente levanta `AlertaNaoEncontrado`. Como o índice único dos alertas só vale para `aberto`, depois do reconhecimento uma nova leitura alterada do mesmo tipo volta a gerar alerta.
 
@@ -311,7 +319,20 @@ Corpo `{"email": "...", "senha": "..."}`. Responde 200 com `{"access_token": "<j
 
 O token é um JWT HS256 assinado com `JWT_SECRET`, com `sub` (e-mail), `iat` e `exp` (`JWT_EXP_MINUTES`, padrão 60). A API não guarda sessão: qualquer réplica valida o token sozinha.
 
-### 7.4 Rotas do dashboard
+### 7.4 `POST /auth/cadastro`
+
+Público: não exige token nem API key. Corpo `{"email": "fulano@exemplo.com", "senha": "senha-segura-123"}`. O e-mail tem os mesmos limites do login (3 a 120 caracteres), mais uma checagem simples de formato (`nome@dominio.tld`); não há normalização de maiúsculas nem de espaços, para o login funcionar com o mesmo texto digitado no cadastro. A senha tem de 8 caracteres a 72 bytes em UTF-8 (limite do bcrypt). Responde 201 com `{"id": 2, "email": "fulano@exemplo.com"}`, **sem token**: para entrar, o cliente chama `POST /auth/login` em seguida (o dashboard faz isso sozinho).
+
+| Status | Quando | Corpo |
+|---|---|---|
+| 201 | usuário criado | `{"id": ..., "email": ...}` |
+| 409 | e-mail já cadastrado | `{"detail":"e-mail já cadastrado"}` |
+| 422 | campo faltando, e-mail fora do formato ou dos limites, senha com menos de 8 caracteres ou mais de 72 bytes | formato padrão do FastAPI (`loc: ["body", campo]`) |
+| 503 | banco indisponível | igual ao `POST /leituras`, com `Retry-After: 5` |
+
+A senha é gravada com bcrypt, como a do administrador. Ao contrário do `POST /leituras` e do `PATCH /alertas/{id}`, a rota **não é idempotente**: repetir o mesmo corpo responde 409.
+
+### 7.5 Rotas do dashboard
 
 Todas exigem `Authorization: Bearer <access_token>`. Sem token, com token expirado, com assinatura errada, com `alg: none` ou com a API key dos sensores no lugar, respondem 401 `{"detail":"token inválido ou ausente"}` com `WWW-Authenticate: Bearer`. Como na API key, o token é conferido antes da validação do corpo.
 
@@ -377,7 +398,7 @@ Os quatro cenários foram ensaiados localmente com o `docker-compose.yml`, e tod
 | CORS restrito a `CORS_ORIGINS`; até as respostas 500 e 503 levam os headers de CORS, e o `Retry-After` é exposto | ✅ implementado |
 | Segredos somente em variáveis de ambiente; `.env` no `.gitignore` | ✅ implementado |
 | Respostas sem stack trace nem mensagem de exceção | ✅ implementado |
-| Senha do administrador armazenada com bcrypt | ✅ implementado |
+| Senhas dos usuários (administrador do seed e contas criadas no cadastro) armazenadas com bcrypt | ✅ implementado |
 | Dados de pacientes fictícios (LGPD, art. 5º, II, e art. 11) | ✅ adotado |
 | Login com JWT (HS256) para o dashboard; algoritmo fixo na validação (bloqueia `alg: none`); `exp` obrigatório | ✅ implementado |
 | `JWT_SECRET` com no mínimo 32 caracteres, senão a API não sobe | ✅ implementado |
@@ -387,6 +408,9 @@ Os quatro cenários foram ensaiados localmente com o `docker-compose.yml`, e tod
 | Banco e réplicas da API sem porta publicada; só o Nginx fica exposto | ✅ implementado (compose) |
 | Cada container recebe só as variáveis de que precisa | ✅ implementado (compose) |
 | HTTPS, firewall, SSH e limite de requisições | ⬜ pendente (infraestrutura) |
+| Cadastro de usuário restrito (administrador, convite ou aprovação) e perfis de acesso | ⬜ fora do escopo: limitação descrita abaixo |
+
+**Limitação consciente: cadastro público.** O `POST /auth/cadastro` é aberto, na tela de login, por decisão de projeto, para simplificar a demonstração. Como não há perfis nem controle de acesso por papel (fora do escopo do trabalho), qualquer pessoa que chegar à URL consegue criar uma conta e ver os dados dos pacientes. Isso é aceitável aqui porque todos os pacientes são fictícios. Outra consequência: o 409 do cadastro revela se um e-mail já tem conta, o que o login evita de propósito (resposta e tempo iguais para e-mail inexistente e senha errada). Num sistema com dados reais, seria preciso restringir o cadastro (feito só por um administrador, por convite ou com aprovação) e ter perfis de acesso; fica como trabalho futuro. Enquanto isso, o rate limit do Nginx sobre o cadastro limita a criação de contas em massa ([integracao-infra.md](integracao-infra.md), seção 4).
 
 ## 10. Testes e resultados
 
@@ -394,9 +418,9 @@ Os quatro cenários foram ensaiados localmente com o `docker-compose.yml`, e tod
 
 | Conjunto | Banco | O que cobre |
 |---|---|---|
-| `tests/unit` (228 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos), loop do worker (logs, banco fora, erro inesperado, SIGTERM, configuração) e regra de dependência |
+| `tests/unit` (249 testes) | nenhum | regras e casos de borda, entidades, casos de uso, fakes, rotas HTTP (sensores e dashboard, incluindo tokens inválidos e cadastro de usuário), loop do worker (logs, banco fora, erro inesperado, SIGTERM, configuração) e regra de dependência |
 | `simulador/tests` (35 testes) | nenhum | geração das leituras (formato, UUID novo a cada leitura, faixas, anomalia de ~2%, perfis), classificação das respostas, buffer (ordem, reenvio com o mesmo `id`, descarte de rejeitadas, buffer cheio), detecção de queda e volta da API e configuração |
-| `tests/integracao` (42 testes) | PostgreSQL 16 real | conexão, migration, repositórios, seed, fila com concorrência, rotas HTTP (login com o usuário do seed, histórico com `limit` e ordenação, reconhecimento de alertas) e worker montado pela composição (backlog em lotes, banco inacessível) |
+| `tests/integracao` (47 testes) | PostgreSQL 16 real | conexão, migration, repositórios (incluindo cadastro concorrente do mesmo e-mail), seed, fila com concorrência, rotas HTTP (login com o usuário do seed, cadastro seguido de login, histórico com `limit` e ordenação, reconhecimento de alertas) e worker montado pela composição (backlog em lotes, banco inacessível) |
 
 Os testes de integração não usam SQLite, porque `ON CONFLICT`, `SKIP LOCKED` e `TIMESTAMPTZ` se comportam de forma diferente. O esquema é criado pela própria migration, o que também a testa.
 
@@ -576,5 +600,6 @@ Backend: textos do relatório (etapa 9).
 Pontos para a infraestrutura, já descritos em [integracao-infra.md](integracao-infra.md):
 
 - HTTPS e rate limit no Nginx ([infra/nginx/default.conf](../infra/nginx/default.conf) é a versão mínima).
+- Rate limit também no `POST /auth/cadastro`, que hoje não tem limite no Nginx ([integracao-infra.md](integracao-infra.md), seção 4).
 - O CI precisa de um serviço `postgres:16` e da variável `TEST_DATABASE_URL`, e pode rodar também os testes do simulador.
 - Teste de desempenho na VPS: `SEED_PACIENTES=500`, rate limit de `/leituras` que comporte 250 req/s de um único IP (ou desligado durante o teste), simulador parado e `docker stats` durante cada cenário.

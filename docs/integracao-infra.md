@@ -143,7 +143,7 @@ Rotas que o Nginx deve repassar para o upstream das réplicas (porta 8000):
 | Prefixo | Quem usa |
 |---|---|
 | `/leituras` | simulador (header `X-API-Key`) |
-| `/auth/`, `/pacientes`, `/alertas` | dashboard (header `Authorization`) |
+| `/auth/`, `/pacientes`, `/alertas` | dashboard (header `Authorization`; `/auth/login` e `/auth/cadastro` são públicas) |
 | `/health` | healthcheck e smoke test |
 | `/docs`, `/redoc`, `/openapi.json` | Swagger (o dashboard usa como contrato) |
 
@@ -152,7 +152,9 @@ Recomendações:
 - Repassar `Host`, `X-Forwarded-For` e `X-Forwarded-Proto` (a API roda com `--proxy-headers`).
 - Não remover os headers `Authorization` e `X-API-Key`.
 - **Rate limit** mais apertado em `POST /auth/login` (força bruta de senha, ex. 5 req/min por IP) e mais folgado em `/leituras` (os sensores mandam a cada `INTERVALO` segundos; no teste de carga são 500 sensores **saindo de um único IP**, ver seção 11).
-- **Retentativa entre réplicas:** o `POST /leituras` e o `PATCH /alertas/{id}` são idempotentes, então é seguro o Nginx reenviar para a outra réplica quando uma cai no meio da requisição (`proxy_next_upstream error timeout http_502 non_idempotent;`). **Sem `http_503`:** o 503 da API significa banco fora (as duas réplicas respondem igual), e com `http_503` o Nginx marcaria as duas como falhas e trocaria o 503 com `Retry-After` por um 502. Não usar `non_idempotent` em `POST /pacientes` (o reenvio dá 409).
+- **Rate limit também em `POST /auth/cadastro`** (rota nova, pública). No `default.conf` atual, o limite `zone=login` só vale para `location ~ ^(/api)?/auth/login$`; o cadastro cai no `location /` (ou no `location /api/`, quando chega com o prefixo), sem limite nenhum. Motivos para limitar: qualquer pessoa pode chamar a rota sem token, cada chamada roda o bcrypt (custa CPU da réplica, de propósito) e, sem limite, um script cria contas em massa. A mudança mínima é estender a regex do location do login para `^(/api)?/auth/(login|cadastro)$`, mantendo o `rewrite` e o `proxy_next_upstream` como estão. Com a mesma zona, o cadastro e o login automático que o dashboard faz logo depois consomem duas requisições do mesmo limite por IP; se isso atrapalhar a demonstração (várias pessoas atrás do mesmo IP), use uma zona própria para o cadastro (ex. `zone=cadastro` com `rate=10r/m`).
+- **O `POST /auth/cadastro` não é idempotente:** se o Nginx reenviar para a outra réplica um cadastro que a primeira já gravou, o usuário recebe 409 em vez de 201. Por isso esse location **não** deve ter `non_idempotent` no `proxy_next_upstream`. O location do login, que passaria a atender também o cadastro, já está certo nesse ponto (`error timeout http_502`, sem `non_idempotent`).
+- **Retentativa entre réplicas:** o `POST /leituras` e o `PATCH /alertas/{id}` são idempotentes, então é seguro o Nginx reenviar para a outra réplica quando uma cai no meio da requisição (`proxy_next_upstream error timeout http_502 non_idempotent;`). **Sem `http_503`:** o 503 da API significa banco fora (as duas réplicas respondem igual), e com `http_503` o Nginx marcaria as duas como falhas e trocaria o 503 com `Retry-After` por um 502. Não usar `non_idempotent` em `POST /pacientes` nem em `POST /auth/cadastro` (o reenvio dá 409).
 - Se o dashboard for servido pelo mesmo domínio, o CORS não é necessário; se for outro domínio, ele precisa estar em `CORS_ORIGINS`.
 - O Postgres **não** deve ser exposto fora da rede do Compose.
 

@@ -130,6 +130,15 @@ curl -i -X POST http://localhost:8000/leituras \
 
 A primeira chamada responde `201` com `"nova": true`. Repetir o mesmo `curl` responde `200` com `"nova": false`, sem gravar a leitura de novo.
 
+Cadastro de um usuário do dashboard (rota pública, sem token):
+
+```bash
+curl -i -X POST http://localhost:8000/auth/cadastro -H "Content-Type: application/json" \
+  -d '{"email":"fulano@exemplo.com","senha":"senha-segura-123"}'
+```
+
+Responde `201` com `{"id": 2, "email": "fulano@exemplo.com"}`, sem token. Repetir o mesmo `curl` responde `409` (`e-mail já cadastrado`). A senha precisa ter pelo menos 8 caracteres. A conta criada pode fazer login como o admin do seed.
+
 Rotas do dashboard, com o token do login:
 
 ```bash
@@ -184,6 +193,7 @@ O comando padrão da imagem do backend sobe a API. O worker e o migrate usam a m
 |---|---|---|---|
 | GET | `/health` | nenhuma | Verifica a API e o banco |
 | POST | `/leituras` | header `X-API-Key` | Registra uma leitura (idempotente) |
+| POST | `/auth/cadastro` | nenhuma | Cria um usuário do dashboard (e-mail e senha) |
 | POST | `/auth/login` | nenhuma | Devolve um token JWT |
 | GET | `/pacientes` | JWT | Pacientes com a última leitura e os alertas abertos |
 | POST | `/pacientes` | JWT | Cadastra um paciente |
@@ -233,7 +243,7 @@ export TEST_DATABASE_URL=postgresql+psycopg://monitor:teste@localhost:55432/moni
 .venv/bin/python -m pytest -q
 ```
 
-Último resultado (26/11/2026): **270 testes passando**, sendo 228 unitários e 42 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
+Último resultado (27/11/2026): **296 testes passando**, sendo 249 unitários e 47 de integração. Sem `TEST_DATABASE_URL`, os de integração são pulados.
 
 Testes do simulador (unitários, sem rede), dentro de `simulador/`. Qualquer ambiente com pytest serve, inclusive o venv do backend:
 
