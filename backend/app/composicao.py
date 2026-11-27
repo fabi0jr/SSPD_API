@@ -20,7 +20,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from app import config
 from app.adaptadores.entrada.http.deps import Componentes
 from app.adaptadores.entrada.http.main import criar_app
-from app.adaptadores.entrada.http.seguranca import ConfigJwt, verificar_senha
+from app.adaptadores.entrada.http.seguranca import ConfigJwt, gerar_hash_senha, verificar_senha
 from app.adaptadores.entrada.worker.main import Evento, Worker, instalar_sinais
 from app.adaptadores.saida.postgres.db import (
     aguardar_banco,
@@ -37,6 +37,7 @@ from app.adaptadores.saida.postgres.repositorios import (
 )
 from app.aplicacao.autenticar import Autenticar
 from app.aplicacao.cadastrar_paciente import CadastrarPaciente
+from app.aplicacao.cadastrar_usuario import CadastrarUsuario
 from app.aplicacao.consultas import Consultas
 from app.aplicacao.processar_pendentes import ProcessarPendentes
 from app.aplicacao.reconhecer_alerta import ReconhecerAlerta
@@ -67,9 +68,11 @@ def montar_componentes_http(engine: Engine) -> Componentes:
     pacientes = RepositorioPacientesPg(sessoes)
     leituras = RepositorioLeiturasPg(sessoes)
     alertas = RepositorioAlertasPg(sessoes)
+    usuarios = RepositorioUsuariosPg(sessoes)
     return Componentes(
         registrar_leitura=RegistrarLeitura(pacientes, leituras, relogio=relogio_utc),
-        autenticar=Autenticar(RepositorioUsuariosPg(sessoes), verificar_senha),
+        autenticar=Autenticar(usuarios, verificar_senha),
+        cadastrar_usuario=CadastrarUsuario(usuarios, gerar_hash_senha),
         cadastrar_paciente=CadastrarPaciente(pacientes),
         consultas=Consultas(pacientes, leituras, alertas),
         reconhecer_alerta=ReconhecerAlerta(alertas),

@@ -27,6 +27,7 @@ from app.dominio.erros import (
     PacienteInvalido,
     PacienteJaExiste,
     PacienteNaoEncontrado,
+    UsuarioJaExiste,
 )
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ STATUS_POR_ERRO: dict[type[ErroDominio], int] = {
     PacienteNaoEncontrado: status.HTTP_404_NOT_FOUND,
     AlertaNaoEncontrado: status.HTTP_404_NOT_FOUND,
     PacienteJaExiste: status.HTTP_409_CONFLICT,
+    UsuarioJaExiste: status.HTTP_409_CONFLICT,
     CredenciaisInvalidas: status.HTTP_401_UNAUTHORIZED,
 }
 

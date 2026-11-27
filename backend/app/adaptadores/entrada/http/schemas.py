@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PlainSerializer
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, PlainSerializer, field_validator
 
 from app.dominio.entidades import (
     Alerta,
@@ -217,6 +217,44 @@ class Login(BaseModel):
 
     email: str = Field(min_length=3, max_length=120)
     senha: str = Field(min_length=1, max_length=72, description="O bcrypt usa no máximo 72 bytes")
+
+
+# Limite do bcrypt: só os primeiros 72 bytes contam (e o bcrypt 5 recusa senha maior).
+MAXIMO_BYTES_SENHA = 72
+
+
+class Cadastro(BaseModel):
+    """Mesmo `email` do Login (mesmos limites, sem normalização de caixa nem de
+    espaços), para que quem se cadastrou consiga logar com o mesmo texto. O
+    cadastro só acrescenta uma checagem de formato."""
+
+    model_config = ConfigDict(
+        json_schema_extra={"examples": [{"email": "fulano@exemplo.com", "senha": "senha-segura-123"}]}
+    )
+
+    email: str = Field(
+        min_length=3,
+        max_length=120,
+        pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
+        description="E-mail usado no login, exatamente como digitado (maiúsculas contam)",
+    )
+    senha: str = Field(min_length=8, description="De 8 caracteres a 72 bytes em UTF-8 (limite do bcrypt)")
+
+    @field_validator("senha")
+    @classmethod
+    def _senha_cabe_no_bcrypt(cls, senha: str) -> str:
+        if len(senha.encode("utf-8")) > MAXIMO_BYTES_SENHA:
+            raise ValueError(f"a senha pode ter no máximo {MAXIMO_BYTES_SENHA} bytes em UTF-8")
+        return senha
+
+
+class UsuarioSaida(BaseModel):
+    """Resposta do cadastro: nunca leva a senha nem o hash."""
+
+    model_config = ConfigDict(json_schema_extra={"examples": [{"id": 2, "email": "fulano@exemplo.com"}]})
+
+    id: int
+    email: str
 
 
 class Token(BaseModel):

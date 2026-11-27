@@ -11,6 +11,7 @@ from fastapi import Depends, Request
 
 from app.aplicacao.autenticar import Autenticar
 from app.aplicacao.cadastrar_paciente import CadastrarPaciente
+from app.aplicacao.cadastrar_usuario import CadastrarUsuario
 from app.aplicacao.consultas import Consultas
 from app.aplicacao.reconhecer_alerta import ReconhecerAlerta
 from app.aplicacao.registrar_leitura import RegistrarLeitura
@@ -20,6 +21,7 @@ from app.aplicacao.registrar_leitura import RegistrarLeitura
 class Componentes:
     registrar_leitura: RegistrarLeitura
     autenticar: Autenticar
+    cadastrar_usuario: CadastrarUsuario
     cadastrar_paciente: CadastrarPaciente
     consultas: Consultas
     reconhecer_alerta: ReconhecerAlerta
@@ -36,6 +38,10 @@ def registrar_leitura(c: Componentes = Depends(componentes)) -> RegistrarLeitura
 
 def autenticar(c: Componentes = Depends(componentes)) -> Autenticar:
     return c.autenticar
+
+
+def cadastrar_usuario(c: Componentes = Depends(componentes)) -> CadastrarUsuario:
+    return c.cadastrar_usuario
 
 
 def cadastrar_paciente(c: Componentes = Depends(componentes)) -> CadastrarPaciente:

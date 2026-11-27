@@ -2,7 +2,7 @@
 
 - Sensores: header X-API-Key (só em POST /leituras).
 - Dashboard: Authorization: Bearer <JWT> (HS256), obtido em POST /auth/login.
-- Senhas: bcrypt (o hash é gerado pelo seed).
+- Senhas: bcrypt (o hash é gerado pelo seed ou pelo POST /auth/cadastro).
 
 Os esquemas usam as classes de segurança do FastAPI para o Swagger mostrar
 o botão "Authorize".
@@ -51,6 +51,14 @@ def exigir_api_key(request: Request, chave: str | None = Security(esquema_api_ke
 # Hash de uma senha qualquer, usado quando o e-mail não existe: o bcrypt roda do
 # mesmo jeito e o tempo de resposta não revela quais e-mails estão cadastrados.
 _HASH_FICTICIO = bcrypt.hashpw(b"senha-ficticia", bcrypt.gensalt()).decode("ascii")
+
+
+def gerar_hash_senha(senha: str, rounds: int = 12) -> str:
+    """Implementa `aplicacao.cadastrar_usuario.GerarHashSenha`. `rounds` menor só nos testes.
+
+    A senha já chega validada (no máximo 72 bytes): o bcrypt 5 recusa senha maior.
+    """
+    return bcrypt.hashpw(senha.encode("utf-8"), bcrypt.gensalt(rounds=rounds)).decode("ascii")
 
 
 def verificar_senha(senha: str, senha_hash: str | None) -> bool:
