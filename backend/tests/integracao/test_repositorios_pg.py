@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -14,7 +15,7 @@ from app.adaptadores.saida.postgres.repositorios import (
     RepositorioUsuariosPg,
 )
 from app.dominio.entidades import Alerta, Leitura, Paciente, Severidade, StatusAlerta, TipoAlerta
-from app.dominio.erros import PacienteJaExiste
+from app.dominio.erros import PacienteJaExiste, UsuarioJaExiste
 from app.seed import gerar_hash_senha, semear
 from tests.integracao.apoio import inserir_alerta
 
@@ -163,3 +164,41 @@ def test_hash_de_senha_nao_guarda_a_senha():
     h = gerar_hash_senha("segredo")
     assert "segredo" not in h
     assert h.startswith("$2")
+
+
+def test_criar_usuario_e_email_repetido(engine, sessoes):
+    semear(engine, "admin@example.com", "senha-forte", 0)  # id 1
+    repo = RepositorioUsuariosPg(sessoes)
+
+    usuario = repo.criar("fulano@exemplo.com", "hash-1")
+
+    assert (usuario.id, usuario.email, usuario.senha_hash) == (2, "fulano@exemplo.com", "hash-1")
+    assert repo.por_email("fulano@exemplo.com") == usuario
+    with pytest.raises(UsuarioJaExiste):
+        repo.criar("fulano@exemplo.com", "hash-2")
+    with pytest.raises(UsuarioJaExiste):
+        repo.criar("admin@example.com", "hash-3")
+    assert repo.por_email("fulano@exemplo.com").senha_hash == "hash-1"  # não sobrescreveu
+
+
+def test_cadastros_simultaneos_do_mesmo_email_gravam_um_so(sessoes):
+    """Duas réplicas da API ao mesmo tempo: o UNIQUE decide, um cria e o outro recebe o erro."""
+    repo = RepositorioUsuariosPg(sessoes)
+    largada = threading.Barrier(2)
+    resultados: list[str] = []
+
+    def cadastrar(senha_hash: str) -> None:
+        largada.wait()
+        try:
+            repo.criar("fulano@exemplo.com", senha_hash)
+            resultados.append("criou")
+        except UsuarioJaExiste:
+            resultados.append("ja_existe")
+
+    threads = [threading.Thread(target=cadastrar, args=(f"hash-{i}",)) for i in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert sorted(resultados) == ["criou", "ja_existe"]
