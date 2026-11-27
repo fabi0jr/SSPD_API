@@ -22,7 +22,7 @@ from app.dominio.entidades import (
     TipoAlerta,
     Usuario,
 )
-from app.dominio.erros import PacienteJaExiste
+from app.dominio.erros import PacienteJaExiste, UsuarioJaExiste
 
 
 def _agora() -> datetime:
@@ -159,6 +159,15 @@ class RepositorioUsuariosFake:
 
     def por_email(self, email: str) -> Usuario | None:
         return self._banco.usuarios.get(email)
+
+    def criar(self, email: str, senha_hash: str) -> Usuario:
+        # Como o UNIQUE de usuarios.email; o id segue o SERIAL (maior + 1).
+        if email in self._banco.usuarios:
+            raise UsuarioJaExiste(email)
+        proximo_id = max((u.id or 0 for u in self._banco.usuarios.values()), default=0) + 1
+        usuario = Usuario(id=proximo_id, email=email, senha_hash=senha_hash)
+        self._banco.usuarios[email] = usuario
+        return usuario
 
 
 class ErroInjetado(Exception):

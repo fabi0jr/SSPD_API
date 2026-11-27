@@ -39,6 +39,14 @@ class PacienteJaExiste(ErroDominio):
         self.paciente_id = paciente_id
 
 
+class UsuarioJaExiste(ErroDominio):
+    """HTTP 409. A mensagem não repete o e-mail (vai para a resposta e para o log)."""
+
+    def __init__(self, email: str) -> None:
+        super().__init__("e-mail já cadastrado")
+        self.email = email
+
+
 class CredenciaisInvalidas(ErroDominio):
     """E-mail ou senha errados (HTTP 401). A mensagem não diz qual dos dois."""
 

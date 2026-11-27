@@ -64,6 +64,14 @@ class RepositorioAlertas(Protocol):
 class RepositorioUsuarios(Protocol):
     def por_email(self, email: str) -> Usuario | None: ...
 
+    def criar(self, email: str, senha_hash: str) -> Usuario:
+        """Grava o usuário e o devolve com o id. Levanta UsuarioJaExiste se o e-mail já estiver em uso.
+
+        A unicidade é garantida pelo armazenamento (índice único), não por uma
+        consulta antes do insert: duas réplicas da API podem cadastrar ao mesmo tempo.
+        """
+        ...
+
 
 class LotePendente(Protocol):
     """Lote de leituras reservado pelo worker. Tudo aqui roda numa mesma transação."""
