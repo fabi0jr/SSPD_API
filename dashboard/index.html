@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MediMonitor – Painel de monitoramento</title>
+<style>
+  :root {
+    --bg: #f3f6fa; --card: #ffffff; --texto: #17212b; --suave: #5b6b7b; --borda: #dbe3ec;
+    --azul: #1f5fae; --ok: #1e8e3e; --ok-bg: #e3f4e8;
+    --atencao: #b26a00; --atencao-bg: #fff1d6;
+    --critico: #c62828; --critico-bg: #fde4e4;
+    --nd: #6b7785; --nd-bg: #e9edf2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10161d; --card: #19222c; --texto: #e8eef5; --suave: #98a8b8; --borda: #2b3948;
+      --azul: #6ea8ec; --ok: #5ccf7d; --ok-bg: #173324;
+      --atencao: #f0b45a; --atencao-bg: #3a2c12;
+      --critico: #ff8a8a; --critico-bg: #3d1a1a;
+      --nd: #9aa7b5; --nd-bg: #242f3b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--texto); }
+  [hidden] { display: none !important; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  h2 { font-size: 1.05rem; margin: 1.6rem 0 .7rem; }
+  button { font: inherit; cursor: pointer; }
+
+  #login { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
+  .login-box { background: var(--card); border: 1px solid var(--borda); border-radius: 14px; padding: 2rem; width: min(380px, 100%); }
+  .login-box p { color: var(--suave); margin: .3rem 0 1.2rem; font-size: .92rem; }
+  label { display: block; font-size: .85rem; margin: .8rem 0 .3rem; color: var(--suave); }
+  input { width: 100%; padding: .7rem .8rem; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg); color: var(--texto); font: inherit; }
+  .btn { width: 100%; margin-top: 1.1rem; padding: .75rem; border: 0; border-radius: 8px; background: var(--azul); color: #fff; font-weight: 600; }
+  #login-erro { color: var(--critico); font-size: .88rem; margin-top: .8rem; min-height: 1.2em; }
+  .dica { font-size: .8rem; color: var(--suave); margin-top: 1rem; }
+
+  #app { max-width: 1180px; margin: 0 auto; padding: 1rem 1rem 3rem; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .4rem 0 1rem; border-bottom: 1px solid var(--borda); }
+  header .esp { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .7rem; border-radius: 999px; font-size: .82rem; font-weight: 600; background: var(--nd-bg); color: var(--nd); }
+  .pill::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.atencao { background: var(--atencao-bg); color: var(--atencao); }
+  .pill.critico { background: var(--critico-bg); color: var(--critico); }
+  #atualizado, .link { font-size: .82rem; color: var(--suave); }
+  .link { background: none; border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: .35rem .8rem; }
+  #banner, #demo-aviso { margin-top: 1rem; padding: .7rem 1rem; border-radius: 8px; font-size: .9rem; }
+  #banner { background: var(--critico-bg); color: var(--critico); }
+  #demo-aviso { background: var(--atencao-bg); color: var(--atencao); }
+
+  .resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin-top: 1rem; }
+  .num-card { background: var(--card); border: 1px solid var(--borda); border-radius: 12px; padding: .9rem 1rem; }
+  .num-card .valor { font-size: 1.9rem; font-weight: 700; }
+  .num-card .rotulo { font-size: .82rem; color: var(--suave); }
+
+  .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: .9rem; }
+  .pac { background: var(--card); border: 2px solid var(--borda); border-radius: 12px; padding: .9rem; text-align: left; color: inherit; width: 100%; }
+  .pac:hover, .pac.sel { border-color: var(--azul); }
+  .pac.critico { border-left: 8px solid var(--critico); }
+  .pac.atencao { border-left: 8px solid var(--atencao); }
+  .pac.normal  { border-left: 8px solid var(--ok); }
+  .pac.sem     { border-left: 8px solid var(--nd); }
+  .pac .topo, .rodape { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+  .pac .nome { font-weight: 700; }
+  .pac .leito, .rodape { font-size: .78rem; color: var(--suave); }
+  .sinais { display: grid; grid-template-columns: repeat(3, 1fr); gap: .3rem; margin: .8rem 0 .6rem; text-align: center; }
+  .sinais .v { font-size: 1.35rem; font-weight: 700; }
+  .sinais .u, .sinais .r { font-size: .72rem; color: var(--suave); }
+  .sinais .ruim .v { color: var(--critico); }
+  .sinais .aten .v { color: var(--atencao); }
+  .tag { font-size: .72rem; font-weight: 700; padding: .12rem .5rem; border-radius: 999px; background: var(--nd-bg); color: var(--nd); }
+  .tag.critico, .tag.alta { background: var(--critico-bg); color: var(--critico); }
+  .tag.atencao, .tag.media { background: var(--atencao-bg); color: var(--atencao); }
+  .tag.normal { background: var(--ok-bg); color: var(--ok); }
+
+  #detalhe { background: var(--card); border: 1px solid var(--borda); border-radius: 12px; padding: 1rem; margin-top: 1rem; }
+  #detalhe .cab { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
+  .graficos { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+  .grafico h3 { font-size: .85rem; margin: 0 0 .2rem; color: var(--suave); }
+  .grafico svg { width: 100%; height: auto; display: block; }
+  .grafico .vazio, .vazio-tab { color: var(--suave); font-size: .88rem; padding: 1rem; }
+
+  .tabela-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--borda); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--borda); white-space: nowrap; }
+  th { color: var(--suave); font-size: .8rem; }
+  tr:last-child td { border-bottom: 0; }
+</style>
+</head>
+<body>
+
+<section id="login">
+  <form class="login-box" id="form-login">
+    <h1>MediMonitor</h1>
+    <p>Entre com seu e-mail e senha para acessar o painel.</p>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" required autofocus>
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" required>
+    <button class="btn" id="btn-entrar" type="submit">Entrar</button>
+    <div id="login-erro" role="alert"></div>
+    <div class="dica">Sem servidor: abra com <b>?demo=1</b> na URL.</div>
+  </form>
+</section>
+
+<main id="app" hidden>
+  <header>
+    <h1>MediMonitor</h1>
+    <span id="status" class="pill">Verificando…</span>
+    <span class="esp"></span>
+    <span id="atualizado"></span>
+    <button class="link" id="sair" type="button">Sair</button>
+  </header>
+
+  <div id="demo-aviso" hidden>Modo demonstração: dados simulados localmente.</div>
+  <div id="banner" role="alert" hidden></div>
+
+  <section class="resumo">
+    <div class="num-card"><div class="valor" id="n-pacientes">–</div><div class="rotulo">Pacientes</div></div>
+    <div class="num-card"><div class="valor" id="n-leituras">–</div><div class="rotulo">Leituras na tela</div></div>
+    <div class="num-card"><div class="valor" id="n-alertas">–</div><div class="rotulo">Alertas abertos</div></div>
+    <div class="num-card"><div class="valor" id="n-criticos">–</div><div class="rotulo">Pacientes críticos</div></div>
+  </section>
+
+  <h2>Pacientes</h2>
+  <div class="grade" id="pacientes"></div>
+
+  <section id="detalhe" hidden>
+    <div class="cab">
+      <strong id="det-titulo"></strong>
+      <button class="link" id="det-fechar" type="button">Fechar</button>
+    </div>
+    <div class="graficos" id="det-graficos"></div>
+  </section>
+
+  <h2>Alertas abertos</h2>
+  <div class="tabela-wrap">
+    <table>
+      <thead><tr><th>Horário</th><th>Paciente</th><th>Tipo</th><th>Severidade</th><th>Valor</th></tr></thead>
+      <tbody id="alertas"></tbody>
+    </table>
+    <div class="vazio-tab" id="alertas-vazio" hidden>Nenhum alerta aberto.</div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const CFG = {
+  apiBase: window.API_BASE ?? "",
+  intervaloMs: 5000,
+  timeoutMs: 5000,
+  limiteAlertas: 50,
+  limiteLeituras: 30,
+  faixas: {
+    fc:   { critMin: 50, critMax: 120, atenMin: 55, atenMax: 110, normalMin: 60, normalMax: 100, un: "bpm" },
+    spo2: { critMin: 90, critMax: 101, atenMin: 93, atenMax: 101, normalMin: 95, normalMax: 100, un: "%" },
+    temp: { critMin: 35, critMax: 38,  atenMin: 35.5, atenMax: 37.8, normalMin: 36, normalMax: 37.5, un: "°C" }
+  }
+};
+
+const DEMO = new URLSearchParams(location.search).has("demo");
+const TOKEN_KEY = "medimonitor_token";
+const $ = (id) => document.getElementById(id);
+
+function el(tag, props = {}, filhos = []) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k === "text") e.textContent = v;
+    else e.setAttribute(k, v);
+  }
+  for (const f of [].concat(filhos)) if (f) e.append(f);
+  return e;
+}
+
+const nf = (v, c = 0) => (v === null || v === undefined || Number.isNaN(Number(v))) ? "–" : Number(v).toFixed(c).replace(".", ",");
+const fmtHora = (iso) => { const d = new Date(iso); return isNaN(d) ? "–" : d.toLocaleTimeString("pt-BR"); };
+
+class ErroAuth extends Error {}
+let token = "";
+let retryAte = 0;
+
+async function req(caminho, opts = {}) {
+  if (DEMO) return demoApi(caminho);
+  if (Date.now() < retryAte) throw new Error("Aguardando reconexão");
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), CFG.timeoutMs);
+  try {
+    const headers = { ...(opts.headers || {}) };
+    if (!opts.semAuth && token) headers.Authorization = `Bearer ${token}`;
+    const r = await fetch(CFG.apiBase + caminho, { ...opts, headers, signal: ctl.signal, cache: "no-store" });
+    if (r.status === 401) throw new ErroAuth();
+    if (r.status === 503) {
+      const seg = Number(r.headers.get("Retry-After")) || 5;
+      retryAte = Date.now() + seg * 1000;
+    }
+    return r;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function getJson(caminho) {
+  const r = await req(caminho);
+  if (DEMO) return r;
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+function nivel(v, f) {
+  if (v === null || v === undefined) return "sem";
+  if (v < f.critMin || v > f.critMax) return "critico";
+  if (v < f.atenMin || v > f.atenMax) return "atencao";
+  return "normal";
+}
+
+const ORDEM = { sem: 0, normal: 1, atencao: 2, critico: 3 };
+const ROTULO = { sem: "Sem leitura", normal: "Estável", atencao: "Atenção", critico: "Crítico" };
+
+function estadoPaciente(p) {
+  const u = p.ultima_leitura;
+  if (!u) return "sem";
+  return [nivel(u.fc, CFG.faixas.fc), nivel(u.spo2, CFG.faixas.spo2), nivel(u.temp, CFG.faixas.temp)]
+    .reduce((a, b) => (ORDEM[b] > ORDEM[a] ? b : a), "normal");
+}
+
+let selecionado = null;
+let ultimosPacientes = [];
+
+function celulaSinal(rotulo, valor, casas, unidade, f) {
+  const n = nivel(valor, f);
+  return el("div", { class: n === "critico" ? "ruim" : n === "atencao" ? "aten" : "" }, [
+    el("div", { class: "v", text: nf(valor, casas) }),
+    el("div", { class: "u", text: unidade }),
+    el("div", { class: "r", text: rotulo })
+  ]);
+}
+
+function renderPacientes(lista) {
+  ultimosPacientes = lista;
+  $("n-pacientes").textContent = String(lista.length);
+  $("n-leituras").textContent = String(lista.filter((p) => p.ultima_leitura).length);
+  $("n-criticos").textContent = String(lista.filter((p) => estadoPaciente(p) === "critico" || Number(p.alertas_abertos) > 0).length);
+
+  $("pacientes").replaceChildren(...lista.map((p) => {
+    const estado = estadoPaciente(p);
+    const u = p.ultima_leitura;
+    const btn = el("button", {
+      class: `pac ${estado}${p.id === selecionado ? " sel" : ""}`,
+      type: "button"
+    }, [
+      el("div", { class: "topo" }, [
+        el("span", { class: "nome", text: `${p.id} · ${p.nome}` }),
+        el("span", { class: "leito", text: p.leito || "–" })
+      ]),
+      el("div", { class: "sinais" }, [
+        celulaSinal("FC", u?.fc, 0, "bpm", CFG.faixas.fc),
+        celulaSinal("SpO2", u?.spo2, 1, "%", CFG.faixas.spo2),
+        celulaSinal("Temp", u?.temp, 1, "°C", CFG.faixas.temp)
+      ]),
+      el("div", { class: "rodape" }, [
+        el("span", { text: u?.ts ? fmtHora(u.ts) : "sem leitura" }),
+        el("span", { class: `tag ${estado === "sem" ? "" : estado}`, text: ROTULO[estado] })
+      ])
+    ]);
+    btn.addEventListener("click", () => selecionar(p.id));
+    return btn;
+  }));
+}
+
+function renderAlertas(lista) {
+  $("n-alertas").textContent = String(lista.length);
+  $("alertas-vazio").hidden = lista.length > 0;
+  $("alertas").replaceChildren(...lista.map((a) => {
+    const sev = String(a.severidade || "").toLowerCase();
+    const un = a.tipo === "SPO2_BAIXA" ? "%" : a.tipo === "FEBRE" || a.tipo === "HIPOTERMIA" ? "°C" : "bpm";
+    return el("tr", {}, [
+      el("td", { text: fmtHora(a.criado_em) }),
+      el("td", { text: a.paciente_id }),
+      el("td", { text: a.tipo || "" }),
+      el("td", {}, [el("span", { class: `tag ${sev}`, text: a.severidade || "" })]),
+      el("td", { text: `${nf(a.valor, 1)} ${un}` })
+    ]);
+  }));
+}
+
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (tag, attrs = {}) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+};
+
+function graficoLinha(titulo, valores, f, casas) {
+  const box = el("div", { class: "grafico" }, [el("h3", { text: `${titulo} (${f.un})` })]);
+  if (valores.length < 2) {
+    box.append(el("div", { class: "vazio", text: "Sem histórico suficiente." }));
+    return box;
+  }
+  const W = 320, H = 110, ml = 34, mr = 8, mt = 8, mb = 16;
+  const minV = Math.min(...valores, f.normalMin);
+  const maxV = Math.max(...valores, f.normalMax);
+  const folga = (maxV - minV) * 0.12 || 1;
+  const lo = minV - folga, hi = maxV + folga;
+  const x = (i) => ml + (i * (W - ml - mr)) / (valores.length - 1);
+  const y = (v) => mt + (1 - (v - lo) / (hi - lo)) * (H - mt - mb);
+
+  const s = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+  s.append(svgEl("rect", {
+    x: ml, y: y(f.normalMax), width: W - ml - mr,
+    height: Math.max(2, y(f.normalMin) - y(f.normalMax)), fill: "var(--ok-bg)"
+  }));
+  s.append(svgEl("polyline", {
+    points: valores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "),
+    fill: "none", stroke: "var(--azul)", "stroke-width": 2
+  }));
+  const ult = valores.length - 1;
+  const lbl = svgEl("text", { x: W - mr, y: H - 3, "text-anchor": "end", "font-size": 9, fill: "var(--suave)" });
+  lbl.textContent = `atual: ${nf(valores[ult], casas)} ${f.un}`;
+  s.append(lbl);
+  box.append(s);
+  return box;
+}
+
+async function renderDetalhe() {
+  if (!selecionado) { $("detalhe").hidden = true; return; }
+  const p = ultimosPacientes.find((item) => item.id === selecionado);
+  if (!p) { selecionado = null; $("detalhe").hidden = true; return; }
+  const leituras = (await getJson(`/pacientes/${encodeURIComponent(selecionado)}/leituras?limit=${CFG.limiteLeituras}`)).slice().reverse();
+  $("detalhe").hidden = false;
+  $("det-titulo").textContent = `${p.id} · ${p.nome} (${p.leito || "sem leito"})`;
+  $("det-graficos").replaceChildren(
+    graficoLinha("FC", leituras.map((l) => Number(l.fc)), CFG.faixas.fc, 0),
+    graficoLinha("SpO2", leituras.map((l) => Number(l.spo2)), CFG.faixas.spo2, 1),
+    graficoLinha("Temp", leituras.map((l) => Number(l.temp)), CFG.faixas.temp, 1)
+  );
+}
+
+function selecionar(id) {
+  selecionado = selecionado === id ? null : id;
+  renderPacientes(ultimosPacientes);
+  renderDetalhe().catch(() => {});
+}
+
+let timer = null, ocupada = false;
+
+function setStatus(texto, cls) {
+  $("status").textContent = texto;
+  $("status").className = "pill " + cls;
+}
+
+async function atualizar() {
+  if (ocupada) return;
+  ocupada = true;
+  try {
+    const [pacientes, alertas] = await Promise.all([
+      getJson("/pacientes"),
+      getJson(`/alertas?status=aberto&limit=${CFG.limiteAlertas}`)
+    ]);
+    renderPacientes(pacientes);
+    renderAlertas(alertas);
+    await renderDetalhe();
+    $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR");
+    $("banner").hidden = true;
+    setStatus(DEMO ? "Demo" : "Online", DEMO ? "atencao" : "ok");
+  } catch (e) {
+    if (e instanceof ErroAuth) { sair("Sessão expirada. Entre novamente."); return; }
+    setStatus("Falha na API", "critico");
+    $("banner").hidden = false;
+    $("banner").textContent = "API indisponível ou instável. Tentando reconectar…";
+  } finally {
+    ocupada = false;
+  }
+}
+
+function iniciar() {
+  $("login").hidden = true;
+  $("app").hidden = false;
+  $("demo-aviso").hidden = !DEMO;
+  atualizar();
+  clearInterval(timer);
+  timer = setInterval(() => { if (!document.hidden) atualizar(); }, CFG.intervaloMs);
+}
+
+function sair(msg = "") {
+  clearInterval(timer); timer = null;
+  token = ""; selecionado = null;
+  sessionStorage.removeItem(TOKEN_KEY);
+  $("app").hidden = true;
+  $("login").hidden = false;
+  $("senha").value = "";
+  $("login-erro").textContent = msg;
+}
+
+$("form-login").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("btn-entrar").disabled = true;
+  $("login-erro").textContent = "";
+  try {
+    const r = await req("/auth/login", {
+      method: "POST",
+      semAuth: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: $("email").value.trim(), senha: $("senha").value })
+    });
+    if (r.status === 401) { $("login-erro").textContent = "E-mail ou senha inválidos."; return; }
+    if (!r.ok) { $("login-erro").textContent = "Erro ao autenticar (" + r.status + ")."; return; }
+    const data = await r.json();
+    token = data.access_token;
+    sessionStorage.setItem(TOKEN_KEY, token);
+    iniciar();
+  } catch {
+    $("login-erro").textContent = "Não foi possível conectar à API.";
+  } finally {
+    $("btn-entrar").disabled = false;
+  }
+});
+
+$("sair").addEventListener("click", () => sair());
+$("det-fechar").addEventListener("click", () => selecionar(selecionado));
+
+const demoDados = {
+  pacientes: [
+    { id: "P001", nome: "Paciente Fictício 001", leito: "L-001", fc: 78, spo2: 97.5, temp: 36.6, hist: [] },
+    { id: "P007", nome: "Paciente Fictício 007", leito: "L-007", fc: 126, spo2: 88.2, temp: 38.4, hist: [] }
+  ],
+  alertas: []
+};
+function demoTick() {
+  const ts = new Date().toISOString();
+  demoDados.alertas = [];
+  for (const p of demoDados.pacientes) {
+    p.fc = Math.round(Math.max(45, Math.min(140, p.fc + (Math.random() - 0.5) * 10)));
+    p.spo2 = Number(Math.max(85, Math.min(99.5, p.spo2 + (Math.random() - 0.5) * 2.5)).toFixed(1));
+    p.temp = Number(Math.max(35.5, Math.min(39.2, p.temp + (Math.random() - 0.5) * 0.4)).toFixed(1));
+    p.hist.push({ fc: p.fc, spo2: p.spo2, temp: p.temp, ts });
+    if (p.hist.length > 40) p.hist.shift();
+    if (p.spo2 < 90) demoDados.alertas.push({ id: p.id + "-spo2", paciente_id: p.id, tipo: "SPO2_BAIXA", severidade: "ALTA", valor: p.spo2, criado_em: ts });
+    if (p.fc > 120) demoDados.alertas.push({ id: p.id + "-fc", paciente_id: p.id, tipo: "TAQUICARDIA", severidade: "MEDIA", valor: p.fc, criado_em: ts });
+    if (p.temp >= 38) demoDados.alertas.push({ id: p.id + "-temp", paciente_id: p.id, tipo: "FEBRE", severidade: "MEDIA", valor: p.temp, criado_em: ts });
+  }
+}
+for (let i = 0; i < 12; i++) demoTick();
+async function demoApi(caminho) {
+  demoTick();
+  if (caminho.startsWith("/pacientes/")) {
+    const id = caminho.split("/")[2];
+    const p = demoDados.pacientes.find((x) => x.id === id);
+    return (p ? p.hist : []).slice().reverse();
+  }
+  if (caminho.startsWith("/pacientes")) {
+    return demoDados.pacientes.map((p) => ({
+      id: p.id, nome: p.nome, leito: p.leito,
+      alertas_abertos: demoDados.alertas.filter((a) => a.paciente_id === p.id).length,
+      ultima_leitura: { fc: p.fc, spo2: p.spo2, temp: p.temp, ts: p.hist.at(-1)?.ts }
+    }));
+  }
+  if (caminho.startsWith("/alertas")) return demoDados.alertas;
+  return [];
+}
+
+if (DEMO) {
+  iniciar();
+} else {
+  const salvo = sessionStorage.getItem(TOKEN_KEY);
+  if (salvo) { token = salvo; iniciar(); }
+}
+</script>
+</body>
+</html>
