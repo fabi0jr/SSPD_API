@@ -34,8 +34,9 @@
   label { display: block; font-size: .85rem; margin: .8rem 0 .3rem; color: var(--suave); }
   input { width: 100%; padding: .7rem .8rem; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg); color: var(--texto); font: inherit; }
   .btn { width: 100%; margin-top: 1.1rem; padding: .75rem; border: 0; border-radius: 8px; background: var(--azul); color: #fff; font-weight: 600; }
-  #login-erro { color: var(--critico); font-size: .88rem; margin-top: .8rem; min-height: 1.2em; }
+  #login-erro, #cad-erro { color: var(--critico); font-size: .88rem; margin-top: .8rem; min-height: 1.2em; }
   .dica { font-size: .8rem; color: var(--suave); margin-top: 1rem; }
+  .troca { display: block; margin: .6rem auto 0; padding: .2rem; border: 0; background: none; color: var(--azul); font-size: .88rem; text-decoration: underline; }
 
   #app { max-width: 1180px; margin: 0 auto; padding: 1rem 1rem 3rem; }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .4rem 0 1rem; border-bottom: 1px solid var(--borda); }
@@ -102,7 +103,19 @@
     <input id="senha" type="password" required>
     <button class="btn" id="btn-entrar" type="submit">Entrar</button>
     <div id="login-erro" role="alert"></div>
+    <button class="troca" id="ir-cadastro" type="button">Criar conta</button>
     <div class="dica">Sem servidor: abra com <b>?demo=1</b> na URL.</div>
+  </form>
+  <form class="login-box" id="form-cadastro" hidden>
+    <h1>Criar conta</h1>
+    <p>Informe seu e-mail e uma senha de 8 a 72 caracteres.</p>
+    <label for="cad-email">E-mail</label>
+    <input id="cad-email" type="email" required autocomplete="email">
+    <label for="cad-senha">Senha</label>
+    <input id="cad-senha" type="password" required minlength="8" maxlength="72" autocomplete="new-password">
+    <button class="btn" id="btn-cadastrar" type="submit">Cadastrar</button>
+    <div id="cad-erro" role="alert"></div>
+    <button class="troca" id="ir-login" type="button">Já tenho conta — entrar</button>
   </form>
 </section>
 
@@ -401,6 +414,7 @@ $("form-login").addEventListener("submit", async (ev) => {
   $("btn-entrar").disabled = true;
   $("login-erro").textContent = "";
   try {
+    if (DEMO) { iniciar(); return; } // demonstração: sem servidor, entra direto
     const r = await req("/auth/login", {
       method: "POST",
       semAuth: true,
@@ -413,11 +427,59 @@ $("form-login").addEventListener("submit", async (ev) => {
     token = data.access_token;
     sessionStorage.setItem(TOKEN_KEY, token);
     iniciar();
-  } catch {
-    $("login-erro").textContent = "Não foi possível conectar à API.";
+  } catch (e) {
+    // req() lança ErroAuth no 401, então a credencial errada chega aqui
+    $("login-erro").textContent = e instanceof ErroAuth ? "E-mail ou senha inválidos." : "Não foi possível conectar à API.";
   } finally {
     $("btn-entrar").disabled = false;
   }
+});
+
+function mostrarCadastro(sim) {
+  $("form-login").hidden = sim;
+  $("form-cadastro").hidden = !sim;
+  $("login-erro").textContent = "";
+  $("cad-erro").textContent = "";
+  (sim ? $("cad-email") : $("email")).focus();
+}
+
+const MSG_CADASTRO = {
+  409: "Este e-mail já está cadastrado.",
+  422: "Dados inválidos: informe um e-mail válido e uma senha de 8 a 72 caracteres.",
+  429: "Muitas tentativas. Aguarde um pouco e tente de novo."
+};
+
+$("ir-cadastro").addEventListener("click", () => mostrarCadastro(true));
+$("ir-login").addEventListener("click", () => mostrarCadastro(false));
+
+$("form-cadastro").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const email = $("cad-email").value.trim();
+  const senha = $("cad-senha").value;
+  $("btn-cadastrar").disabled = true;
+  $("cad-erro").textContent = "";
+  try {
+    if (!DEMO) { // na demonstração não há servidor: segue direto para o login demo
+      const r = await req("/auth/cadastro", {
+        method: "POST",
+        semAuth: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, senha })
+      });
+      if (!r.ok) { $("cad-erro").textContent = MSG_CADASTRO[r.status] || "Erro ao cadastrar (" + r.status + ")."; return; }
+    }
+  } catch {
+    $("cad-erro").textContent = "Não foi possível conectar à API.";
+    return;
+  } finally {
+    $("btn-cadastrar").disabled = false;
+  }
+  // Conta criada: login automático pelo próprio formulário de login (token, iniciar e erros ficam lá)
+  $("cad-senha").value = "";
+  mostrarCadastro(false);
+  $("email").value = email;
+  $("senha").value = senha;
+  $("form-login").requestSubmit();
 });
 
 $("sair").addEventListener("click", () => sair());

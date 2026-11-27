@@ -9,13 +9,14 @@ from uuid import uuid4
 import pytest
 
 from app.dominio.entidades import Alerta, Leitura, Paciente, Severidade, StatusAlerta, TipoAlerta
-from app.dominio.erros import PacienteJaExiste
+from app.dominio.erros import PacienteJaExiste, UsuarioJaExiste
 from tests.fakes import (
     BancoFake,
     FilaPendentesFake,
     RepositorioAlertasFake,
     RepositorioLeiturasFake,
     RepositorioPacientesFake,
+    RepositorioUsuariosFake,
 )
 
 T0 = datetime(2026, 11, 25, 14, 0, tzinfo=timezone.utc)
@@ -160,3 +161,15 @@ def test_reservas_simultaneas_nao_pegam_a_mesma_leitura(banco):
     assert len(ids_a) == 2
     assert len(ids_b) == 1
     assert ids_a.isdisjoint(ids_b)
+
+
+def test_criar_usuario_e_email_repetido(banco):
+    repo = RepositorioUsuariosFake(banco)
+    usuario = repo.criar("fulano@exemplo.com", "hash")
+
+    assert (usuario.id, usuario.email, usuario.senha_hash) == (1, "fulano@exemplo.com", "hash")
+    assert repo.por_email("fulano@exemplo.com") == usuario
+    with pytest.raises(UsuarioJaExiste):
+        repo.criar("fulano@exemplo.com", "outro-hash")
+    assert repo.por_email("fulano@exemplo.com").senha_hash == "hash"
+    assert repo.criar("outro@exemplo.com", "hash").id == 2

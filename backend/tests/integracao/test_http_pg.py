@@ -204,3 +204,38 @@ def test_reconhecer_libera_novo_alerta_do_mesmo_tipo(cliente, auth, sessoes):
 
     inserir_alerta(sessoes, Alerta("P001", l2, TipoAlerta.SPO2_BAIXA, 87.5, Severidade.ALTA))
     assert len(cliente.get("/alertas", params={"paciente_id": "P001"}, headers=auth).json()) == 2
+
+
+# --- Cadastro de usuário ---------------------------------------------------------
+
+def test_cadastro_depois_login_e_rota_protegida(cliente, engine):
+    semear(engine, EMAIL, SENHA, n_pacientes=0)  # o admin fica com o id 1
+    corpo = {"email": "fulano@exemplo.com", "senha": "senha-segura-123"}
+
+    r = cliente.post("/auth/cadastro", json=corpo)
+    assert (r.status_code, r.json()) == (201, {"id": 2, "email": "fulano@exemplo.com"})
+
+    r = cliente.post("/auth/login", json=corpo)
+    assert r.status_code == 200
+    token = r.json()["access_token"]
+    assert cliente.get("/pacientes", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+
+
+def test_cadastro_repetido_409_e_senha_nao_muda(cliente):
+    corpo = {"email": "fulano@exemplo.com", "senha": "senha-segura-123"}
+    assert cliente.post("/auth/cadastro", json=corpo).status_code == 201
+
+    r = cliente.post("/auth/cadastro", json=corpo | {"senha": "outra-senha-456"})
+    assert (r.status_code, r.json()) == (409, {"detail": "e-mail já cadastrado"})
+    assert cliente.post("/auth/login", json=corpo).status_code == 200
+    assert cliente.post("/auth/login", json=corpo | {"senha": "outra-senha-456"}).status_code == 401
+
+
+def test_cadastro_com_banco_fora_responde_503(monkeypatch):
+    """Banco fora: POST /auth/cadastro responde 503 (o bcrypt roda antes, o insert falha)."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://x:x@127.0.0.1:1/x")
+    monkeypatch.setattr("app.composicao.aguardar_banco", lambda engine: None)
+    with TestClient(criar_app_http()) as cliente:
+        r = cliente.post("/auth/cadastro", json={"email": "fulano@exemplo.com", "senha": "senha-segura-123"})
+    assert r.status_code == 503
+    assert r.headers["retry-after"] == "5"

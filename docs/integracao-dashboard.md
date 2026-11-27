@@ -27,7 +27,7 @@ Deixe a URL base configurável (ex.: `VITE_API_URL`), sem fixar no código.
 3. Todas as outras rotas do dashboard levam o header `Authorization: Bearer <access_token>`.
 4. O token vale `JWT_EXP_MINUTES` minutos (padrão 60). **Não existe refresh token:** quando qualquer rota responder **401**, descarte o token e mande o usuário para o login.
 
-O usuário é criado pelo seed (`ADMIN_EMAIL` / `ADMIN_PASSWORD`). Não há cadastro de usuário, logout no servidor nem perfis: o "logout" é só apagar o token no front.
+O seed cria o usuário administrador (`ADMIN_EMAIL` / `ADMIN_PASSWORD`), e qualquer pessoa pode criar uma conta pelo cadastro (seção 2.1). Não há logout no servidor nem perfis: toda conta vê tudo, e o "logout" é só apagar o token no front.
 
 Guarde o token em memória ou em `sessionStorage`, nunca em cookie sem `HttpOnly` nem em log. Não decodifique o token para tomar decisões: o front só precisa repassá-lo.
 
@@ -40,6 +40,39 @@ const r = await fetch(`${API}/auth/login`, {
 if (r.status === 401) mostrarErro("E-mail ou senha inválidos");
 const { access_token } = await r.json();
 ```
+
+### 2.1 `POST /auth/cadastro`: criar conta
+
+Rota **pública**, como o login: sem `Authorization` e sem `X-API-Key`. Na tela de login, um link "Criar conta" abre um formulário só com e-mail e senha.
+
+Corpo `{"email": "fulano@exemplo.com", "senha": "senha-segura-123"}`. O e-mail tem os mesmos limites do login (3 a 120 caracteres) e precisa ter o formato `nome@dominio.tld`; ele é gravado exatamente como digitado (maiúsculas contam no login), então não altere o texto no front. A senha precisa ter de 8 caracteres a 72 bytes (limite do bcrypt; com acentos, cada caractere pode ocupar mais de um byte).
+
+```json
+{ "id": 2, "email": "fulano@exemplo.com" }
+```
+
+| Status | Significado | Mensagem sugerida |
+|---|---|---|
+| 201 | conta criada; **não** vem token | (nenhuma: segue para o login automático) |
+| 409 | `{"detail": "e-mail já cadastrado"}` | "Este e-mail já tem conta. Faça login." |
+| 422 | campo inválido; ver o formato na seção 4 | marca o campo (`email` ou `senha`) com a `msg`; para a senha, "A senha precisa ter pelo menos 8 caracteres" |
+| 429 | limite de tentativas do Nginx | "Muitas tentativas. Aguarde um pouco e tente de novo." |
+| 503 | banco fora, com `Retry-After` | igual às demais rotas (seção 4) |
+
+Depois do 201, o front chama `POST /auth/login` com o mesmo e-mail e senha e entra no painel, sem pedir a senha de novo:
+
+```js
+const r = await fetch(`${API}/auth/cadastro`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ email, senha }),
+});
+if (r.status === 409) return mostrarErro("Este e-mail já tem conta. Faça login.");
+if (r.status === 429) return mostrarErro("Muitas tentativas. Aguarde um pouco e tente de novo.");
+if (r.status === 201) await entrar(email, senha);   // mesmo código do login acima
+```
+
+O cadastro **não é idempotente**: um segundo envio do mesmo formulário responde 409. Desabilite o botão enquanto a requisição estiver em andamento. A conta criada tem o mesmo acesso do administrador (não há perfis), o que é aceitável só porque os pacientes são fictícios.
 
 ## 3. Rotas
 
@@ -150,8 +183,9 @@ O corpo de erro é sempre `{"detail": ...}`.
 |---|---|---|
 | 401 | `"token inválido ou ausente"` (rotas) ou `"e-mail ou senha inválidos"` (login) | volta para o login |
 | 404 | texto, ex. `"paciente 'P999' não encontrado"` | mostra "não encontrado" |
-| 409 | texto, ex. `"paciente 'P001' já existe"` | mostra a mensagem no formulário |
+| 409 | texto, ex. `"paciente 'P001' já existe"` ou `"e-mail já cadastrado"` (cadastro) | mostra a mensagem no formulário |
 | 422 | lista: `[{"loc": ["body", "nome"], "msg": "...", "type": "..."}]` | marca o campo `loc[loc.length - 1]` com a `msg` |
+| 429 | vem do Nginx (rate limit do login e, quando a infra aplicar, do cadastro); o corpo **não** é JSON | mostra "muitas tentativas, aguarde" sem chamar `r.json()` |
 | 503 | `"banco de dados indisponível, tente novamente"`, com header `Retry-After: 5` | mostra um aviso "sistema instável" e tenta de novo depois do `Retry-After` |
 | 500 | `"erro interno"` | mensagem genérica |
 
@@ -171,7 +205,7 @@ O worker avalia as leituras a cada `WORKER_INTERVALO` segundos (padrão 2), ent�
 
 ## 6. Estado atual e testes locais
 
-- Todas as rotas acima estão prontas (backend, etapa 5).
+- Todas as rotas acima estão prontas (backend, etapa 5). O `POST /auth/cadastro` (seção 2.1) veio depois, na branch `feat/cadastro-usuarios`.
 - **Jeito mais simples de ter dados para a tela:** `docker compose up -d --build --wait` na raiz deste repositório ([README](../README.md#como-subir-com-docker-compose)). Sobem a API (2 réplicas atrás do Nginx), o worker e o simulador com 10 sensores: em poucos segundos há leituras e alertas, sem nenhum passo manual. O login é o `ADMIN_EMAIL` / `ADMIN_PASSWORD` do `.env`.
 - Sem o Compose, cada processo sobe à mão. O worker de alertas está pronto (etapa 6). Para ver alertas no ambiente local, suba o worker como no [README](../README.md#6-iniciar-o-worker-de-alertas) e envie uma leitura alterada (por exemplo `"spo2": 85`): o alerta aparece em `GET /alertas` no ciclo seguinte, e a leitura passa a `processada: true`.
 

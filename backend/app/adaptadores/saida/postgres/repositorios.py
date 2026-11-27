@@ -17,7 +17,7 @@ from app.adaptadores.saida.postgres.models import (
     UsuarioModel,
 )
 from app.dominio.entidades import Alerta, Leitura, Paciente, ResumoPaciente, StatusAlerta, Usuario
-from app.dominio.erros import PacienteJaExiste
+from app.dominio.erros import PacienteJaExiste, UsuarioJaExiste
 
 
 class RepositorioPacientesPg:
@@ -153,3 +153,18 @@ class RepositorioUsuariosPg:
         with self._sessoes() as s:
             m = s.scalar(select(UsuarioModel).where(UsuarioModel.email == email))
             return mapeamento.usuario(m) if m else None
+
+    def criar(self, email: str, senha_hash: str) -> Usuario:
+        # Um comando só, apoiado no UNIQUE de usuarios.email: sem "consultar e
+        # depois inserir", que teria corrida entre as duas réplicas da API.
+        comando = (
+            insert(UsuarioModel)
+            .values(email=email, senha_hash=senha_hash)
+            .on_conflict_do_nothing(index_elements=["email"])
+            .returning(UsuarioModel.id)
+        )
+        with self._sessoes.begin() as s:
+            usuario_id = s.scalar(comando)
+        if usuario_id is None:
+            raise UsuarioJaExiste(email)
+        return Usuario(id=usuario_id, email=email, senha_hash=senha_hash)
