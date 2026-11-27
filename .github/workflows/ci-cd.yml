@@ -1,0 +1,81 @@
+name: CI/CD
+
+# PR (para a dev ou a main): só testa. Push na main: testa, faz o deploy na VPS e o smoke test.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false # nunca cancelar um deploy no meio
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      # Banco descartável: os testes de integração apagam as tabelas.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: monitor
+          POSTGRES_PASSWORD: teste
+          POSTGRES_DB: monitor_teste
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U monitor -d monitor_teste"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: "**/requirements-dev.txt"
+
+      - name: Backend (unitários + integração com Postgres)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://monitor:teste@localhost:5432/monitor_teste
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+
+      - name: Simulador
+        working-directory: simulador
+        run: |
+          pip install -r requirements-dev.txt
+          pytest -q
+
+      # Valida a sintaxe dos dois arquivos do compose juntos (valores fictícios, só para o config).
+      - name: Compose de produção válido
+        env:
+          POSTGRES_PASSWORD: x
+          JWT_SECRET: x
+          SENSOR_API_KEY: x
+          ADMIN_EMAIL: x
+          ADMIN_PASSWORD: x
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
+
+  deploy:
+    needs: testes
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: producao
+      url: https://sspd.fj-dev.tech
+    steps:
+      # A chave só roda infra/deploy.sh (forced command na VPS); o script abaixo é ignorado.
+      - name: Deploy por SSH
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5 (fixo: a ação recebe a chave SSH)
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
+          script: deploy
+
+      - name: Smoke test (HTTPS)
+        run: |
+          curl -fsS --retry 5 --retry-delay 5 --retry-all-errors https://sspd.fj-dev.tech/health
+          test "$(curl -s -o /dev/null -w '%{http_code}' https://sspd.fj-dev.tech/pacientes)" = 401
