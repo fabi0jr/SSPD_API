@@ -132,6 +132,7 @@ services:
     #   docker compose exec nginx nginx -s reload
     volumes:
       - ./infra/nginx:/etc/nginx/conf.d:ro
+      - ./dashboard:/usr/share/nginx/html:ro
     # Espera as réplicas: o Nginx resolve o nome "api" (os IPs das duas) ao iniciar.
     depends_on:
       api:
