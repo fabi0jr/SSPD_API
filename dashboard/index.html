@@ -401,6 +401,7 @@ $("form-login").addEventListener("submit", async (ev) => {
   $("btn-entrar").disabled = true;
   $("login-erro").textContent = "";
   try {
+    if (DEMO) { iniciar(); return; } // demonstração: sem servidor, entra direto
     const r = await req("/auth/login", {
       method: "POST",
       semAuth: true,
@@ -413,8 +414,9 @@ $("form-login").addEventListener("submit", async (ev) => {
     token = data.access_token;
     sessionStorage.setItem(TOKEN_KEY, token);
     iniciar();
-  } catch {
-    $("login-erro").textContent = "Não foi possível conectar à API.";
+  } catch (e) {
+    // req() lança ErroAuth no 401, então a credencial errada chega aqui
+    $("login-erro").textContent = e instanceof ErroAuth ? "E-mail ou senha inválidos." : "Não foi possível conectar à API.";
   } finally {
     $("btn-entrar").disabled = false;
   }
