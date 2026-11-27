@@ -22,105 +22,88 @@
     }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-         background: var(--bg); color: var(--texto); }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--texto); }
   [hidden] { display: none !important; }
   h1 { font-size: 1.25rem; margin: 0; }
   h2 { font-size: 1.05rem; margin: 1.6rem 0 .7rem; }
   button { font: inherit; cursor: pointer; }
 
-  /* login */
   #login { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
-  .login-box { background: var(--card); border: 1px solid var(--borda); border-radius: 14px;
-               padding: 2rem; width: min(380px, 100%); box-shadow: 0 6px 24px rgba(0,0,0,.08); }
-  .login-box h1 { font-size: 1.5rem; margin-bottom: .3rem; }
-  .login-box p { color: var(--suave); margin: .2rem 0 1.2rem; font-size: .92rem; }
-  label { display: block; font-size: .85rem; margin-bottom: .3rem; color: var(--suave); }
-  input[type=password], input[type=text] { width: 100%; padding: .7rem .8rem; border-radius: 8px;
-         border: 1px solid var(--borda); background: var(--bg); color: var(--texto); font: inherit; }
-  .btn { width: 100%; margin-top: 1rem; padding: .75rem; border: 0; border-radius: 8px;
-         background: var(--azul); color: #fff; font-weight: 600; }
-  .btn:disabled { opacity: .6; cursor: wait; }
+  .login-box { background: var(--card); border: 1px solid var(--borda); border-radius: 14px; padding: 2rem; width: min(380px, 100%); }
+  .login-box p { color: var(--suave); margin: .3rem 0 1.2rem; font-size: .92rem; }
+  label { display: block; font-size: .85rem; margin: .8rem 0 .3rem; color: var(--suave); }
+  input { width: 100%; padding: .7rem .8rem; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg); color: var(--texto); font: inherit; }
+  .btn { width: 100%; margin-top: 1.1rem; padding: .75rem; border: 0; border-radius: 8px; background: var(--azul); color: #fff; font-weight: 600; }
   #login-erro { color: var(--critico); font-size: .88rem; margin-top: .8rem; min-height: 1.2em; }
   .dica { font-size: .8rem; color: var(--suave); margin-top: 1rem; }
 
-  /* app */
   #app { max-width: 1180px; margin: 0 auto; padding: 1rem 1rem 3rem; }
-  header { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .4rem 0 1rem;
-           border-bottom: 1px solid var(--borda); }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; padding: .4rem 0 1rem; border-bottom: 1px solid var(--borda); }
   header .esp { flex: 1; }
-  .pill { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .7rem; border-radius: 999px;
-          font-size: .82rem; font-weight: 600; background: var(--nd-bg); color: var(--nd); }
+  .pill { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .7rem; border-radius: 999px; font-size: .82rem; font-weight: 600; background: var(--nd-bg); color: var(--nd); }
   .pill::before { content: ""; width: .55rem; height: .55rem; border-radius: 50%; background: currentColor; }
   .pill.ok { background: var(--ok-bg); color: var(--ok); }
   .pill.atencao { background: var(--atencao-bg); color: var(--atencao); }
   .pill.critico { background: var(--critico-bg); color: var(--critico); }
-  #atualizado { font-size: .82rem; color: var(--suave); }
+  #atualizado, .link { font-size: .82rem; color: var(--suave); }
   .link { background: none; border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: .35rem .8rem; }
-  #banner { margin-top: 1rem; padding: .7rem 1rem; border-radius: 8px; background: var(--critico-bg);
-            color: var(--critico); font-size: .92rem; }
-  #demo-aviso { margin-top: 1rem; padding: .5rem 1rem; border-radius: 8px; background: var(--atencao-bg);
-                color: var(--atencao); font-size: .88rem; }
+  #banner, #demo-aviso { margin-top: 1rem; padding: .7rem 1rem; border-radius: 8px; font-size: .9rem; }
+  #banner { background: var(--critico-bg); color: var(--critico); }
+  #demo-aviso { background: var(--atencao-bg); color: var(--atencao); }
 
   .resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .8rem; margin-top: 1rem; }
   .num-card { background: var(--card); border: 1px solid var(--borda); border-radius: 12px; padding: .9rem 1rem; }
-  .num-card .valor { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
+  .num-card .valor { font-size: 1.9rem; font-weight: 700; }
   .num-card .rotulo { font-size: .82rem; color: var(--suave); }
 
   .grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: .9rem; }
-  .pac { background: var(--card); border: 2px solid var(--borda); border-radius: 12px; padding: .9rem;
-         text-align: left; color: inherit; width: 100%; }
-  .pac:hover { border-color: var(--azul); }
-  .pac.sel { border-color: var(--azul); box-shadow: 0 0 0 2px var(--azul) inset; }
+  .pac { background: var(--card); border: 2px solid var(--borda); border-radius: 12px; padding: .9rem; text-align: left; color: inherit; width: 100%; }
+  .pac:hover, .pac.sel { border-color: var(--azul); }
   .pac.critico { border-left: 8px solid var(--critico); }
   .pac.atencao { border-left: 8px solid var(--atencao); }
   .pac.normal  { border-left: 8px solid var(--ok); }
   .pac.sem     { border-left: 8px solid var(--nd); }
-  .pac .topo { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+  .pac .topo, .rodape { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
   .pac .nome { font-weight: 700; }
-  .pac .leito { font-size: .8rem; color: var(--suave); }
+  .pac .leito, .rodape { font-size: .78rem; color: var(--suave); }
   .sinais { display: grid; grid-template-columns: repeat(3, 1fr); gap: .3rem; margin: .8rem 0 .6rem; text-align: center; }
   .sinais .v { font-size: 1.35rem; font-weight: 700; }
-  .sinais .u { font-size: .7rem; color: var(--suave); }
-  .sinais .r { font-size: .72rem; color: var(--suave); }
+  .sinais .u, .sinais .r { font-size: .72rem; color: var(--suave); }
   .sinais .ruim .v { color: var(--critico); }
   .sinais .aten .v { color: var(--atencao); }
-  .rodape { display: flex; justify-content: space-between; align-items: center; font-size: .78rem; color: var(--suave); }
   .tag { font-size: .72rem; font-weight: 700; padding: .12rem .5rem; border-radius: 999px; background: var(--nd-bg); color: var(--nd); }
-  .tag.critico { background: var(--critico-bg); color: var(--critico); }
-  .tag.atencao { background: var(--atencao-bg); color: var(--atencao); }
-  .tag.normal  { background: var(--ok-bg); color: var(--ok); }
+  .tag.critico, .tag.alta { background: var(--critico-bg); color: var(--critico); }
+  .tag.atencao, .tag.media { background: var(--atencao-bg); color: var(--atencao); }
+  .tag.normal { background: var(--ok-bg); color: var(--ok); }
 
   #detalhe { background: var(--card); border: 1px solid var(--borda); border-radius: 12px; padding: 1rem; margin-top: 1rem; }
   #detalhe .cab { display: flex; justify-content: space-between; align-items: center; margin-bottom: .6rem; }
   .graficos { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-  .grafico h3 { font-size: .85rem; margin: 0 0 .2rem; color: var(--suave); font-weight: 600; }
+  .grafico h3 { font-size: .85rem; margin: 0 0 .2rem; color: var(--suave); }
   .grafico svg { width: 100%; height: auto; display: block; }
-  .grafico .vazio { color: var(--suave); font-size: .85rem; padding: 1.5rem 0; }
+  .grafico .vazio, .vazio-tab { color: var(--suave); font-size: .88rem; padding: 1rem; }
 
   .tabela-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--borda); border-radius: 12px; }
   table { border-collapse: collapse; width: 100%; font-size: .9rem; }
   th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--borda); white-space: nowrap; }
-  td.msg { white-space: normal; }
-  th { color: var(--suave); font-weight: 600; font-size: .8rem; }
+  th { color: var(--suave); font-size: .8rem; }
   tr:last-child td { border-bottom: 0; }
-  .vazio-tab { padding: 1rem; color: var(--suave); }
 </style>
 </head>
 <body>
 
 <section id="login">
-  <div class="login-box">
+  <form class="login-box" id="form-login">
     <h1>MediMonitor</h1>
-    <p>Painel de monitoramento de sinais vitais. Informe a chave de acesso para entrar.</p>
-    <form id="form-login" autocomplete="off">
-      <label for="chave">Chave de acesso</label>
-      <input id="chave" type="password" placeholder="Chave da API" required autofocus>
-      <button class="btn" id="btn-entrar" type="submit">Entrar</button>
-    </form>
+    <p>Entre com seu e-mail e senha para acessar o painel.</p>
+    <label for="email">E-mail</label>
+    <input id="email" type="email" required autofocus>
+    <label for="senha">Senha</label>
+    <input id="senha" type="password" required>
+    <button class="btn" id="btn-entrar" type="submit">Entrar</button>
     <div id="login-erro" role="alert"></div>
-    <div class="dica">Para ver o painel sem o servidor, abra com <b>?demo=1</b> no final do endereço.</div>
-  </div>
+    <div class="dica">Sem servidor: abra com <b>?demo=1</b> na URL.</div>
+  </form>
 </section>
 
 <main id="app" hidden>
@@ -132,14 +115,14 @@
     <button class="link" id="sair" type="button">Sair</button>
   </header>
 
-  <div id="demo-aviso" hidden>Modo demonstração: os dados abaixo são simulados no navegador, sem conexão com a API.</div>
+  <div id="demo-aviso" hidden>Modo demonstração: dados simulados localmente.</div>
   <div id="banner" role="alert" hidden></div>
 
-  <section class="resumo" aria-label="Resumo">
+  <section class="resumo">
     <div class="num-card"><div class="valor" id="n-pacientes">–</div><div class="rotulo">Pacientes</div></div>
-    <div class="num-card"><div class="valor" id="n-leituras">–</div><div class="rotulo">Leituras registradas</div></div>
-    <div class="num-card"><div class="valor" id="n-alertas">–</div><div class="rotulo">Alertas gerados</div></div>
-    <div class="num-card"><div class="valor" id="n-criticos">–</div><div class="rotulo">Pacientes em estado crítico</div></div>
+    <div class="num-card"><div class="valor" id="n-leituras">–</div><div class="rotulo">Leituras na tela</div></div>
+    <div class="num-card"><div class="valor" id="n-alertas">–</div><div class="rotulo">Alertas abertos</div></div>
+    <div class="num-card"><div class="valor" id="n-criticos">–</div><div class="rotulo">Pacientes críticos</div></div>
   </section>
 
   <h2>Pacientes</h2>
@@ -153,104 +136,98 @@
     <div class="graficos" id="det-graficos"></div>
   </section>
 
-  <h2>Alertas recentes</h2>
+  <h2>Alertas abertos</h2>
   <div class="tabela-wrap">
     <table>
-      <thead><tr><th>Horário</th><th>Paciente</th><th>Tipo</th><th>Severidade</th><th>Mensagem</th></tr></thead>
+      <thead><tr><th>Horário</th><th>Paciente</th><th>Tipo</th><th>Severidade</th><th>Valor</th></tr></thead>
       <tbody id="alertas"></tbody>
     </table>
-    <div class="vazio-tab" id="alertas-vazio" hidden>Nenhum alerta registrado até o momento.</div>
+    <div class="vazio-tab" id="alertas-vazio" hidden>Nenhum alerta aberto.</div>
   </div>
 </main>
 
 <script>
 "use strict";
 
-/* ===================== CONFIGURAÇÃO (ajuste aqui) ===================== */
 const CFG = {
-  apiBase: "/api",          // o Nginx encaminha /api/* para a API
-  intervaloMs: 3000,        // atualização automática
-  timeoutMs: 5000,          // tempo máximo de cada requisição
-  limiteAlertas: 20,
-  limiteLeituras: 30,       // pontos nos gráficos
-  semSinalSeg: 60,          // sem leitura há mais que isso -> "sem sinal"
-  // Faixas usadas só para colorir os cartões. Devem acompanhar as regras do serviço de alertas.
+  apiBase: window.API_BASE ?? "",
+  intervaloMs: 5000,
+  timeoutMs: 5000,
+  limiteAlertas: 50,
+  limiteLeituras: 30,
   faixas: {
-    fc:   { critMin: 40,  critMax: 130, atenMin: 50,  atenMax: 110, normalMin: 60,  normalMax: 100, un: "bpm" },
-    spo2: { critMin: 90,  critMax: 101, atenMin: 94,  atenMax: 101, normalMin: 95,  normalMax: 100, un: "%" },
-    temp: { critMin: 35,  critMax: 40,  atenMin: 36,  atenMax: 38.9, normalMin: 36,  normalMax: 37.5, un: "°C" }
+    fc:   { critMin: 50, critMax: 120, atenMin: 55, atenMax: 110, normalMin: 60, normalMax: 100, un: "bpm" },
+    spo2: { critMin: 90, critMax: 101, atenMin: 93, atenMax: 101, normalMin: 95, normalMax: 100, un: "%" },
+    temp: { critMin: 35, critMax: 38,  atenMin: 35.5, atenMax: 37.8, normalMin: 36, normalMax: 37.5, un: "°C" }
   }
 };
-const DEMO = new URLSearchParams(location.search).has("demo");
-const CHAVE_SESSAO = "medimonitor_chave";
 
-/* ===================== utilidades ===================== */
+const DEMO = new URLSearchParams(location.search).has("demo");
+const TOKEN_KEY = "medimonitor_token";
 const $ = (id) => document.getElementById(id);
+
 function el(tag, props = {}, filhos = []) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
     if (k === "class") e.className = v;
-    else if (k === "text") e.textContent = v;      // textContent: nunca interpreta HTML (evita XSS)
+    else if (k === "text") e.textContent = v;
     else e.setAttribute(k, v);
   }
   for (const f of [].concat(filhos)) if (f) e.append(f);
   return e;
 }
-const nf = (v, casas = 0) => (v === null || v === undefined || Number.isNaN(Number(v))) ? "–" : Number(v).toFixed(casas).replace(".", ",");
-function fmtHora(iso) {
-  const d = new Date(iso); if (isNaN(d)) return "–";
-  const hoje = new Date().toDateString() === d.toDateString();
-  return hoje ? d.toLocaleTimeString("pt-BR") : d.toLocaleString("pt-BR");
-}
-function haQuanto(iso) {
-  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (isNaN(s)) return "sem leituras";
-  if (s < 60) return `há ${s} s`;
-  if (s < 3600) return `há ${Math.floor(s / 60)} min`;
-  return `há ${Math.floor(s / 3600)} h`;
-}
 
-/* ===================== acesso à API ===================== */
+const nf = (v, c = 0) => (v === null || v === undefined || Number.isNaN(Number(v))) ? "–" : Number(v).toFixed(c).replace(".", ",");
+const fmtHora = (iso) => { const d = new Date(iso); return isNaN(d) ? "–" : d.toLocaleTimeString("pt-BR"); };
+
 class ErroAuth extends Error {}
-let chave = "";
+let token = "";
+let retryAte = 0;
 
-async function chamarApi(caminho, { semChave = false } = {}) {
+async function req(caminho, opts = {}) {
   if (DEMO) return demoApi(caminho);
+  if (Date.now() < retryAte) throw new Error("Aguardando reconexão");
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), CFG.timeoutMs);
   try {
-    const r = await fetch(CFG.apiBase + caminho, {
-      headers: semChave ? {} : { "X-API-Key": chave }, signal: ctl.signal, cache: "no-store"
-    });
+    const headers = { ...(opts.headers || {}) };
+    if (!opts.semAuth && token) headers.Authorization = `Bearer ${token}`;
+    const r = await fetch(CFG.apiBase + caminho, { ...opts, headers, signal: ctl.signal, cache: "no-store" });
     if (r.status === 401) throw new ErroAuth();
+    if (r.status === 503) {
+      const seg = Number(r.headers.get("Retry-After")) || 5;
+      retryAte = Date.now() + seg * 1000;
+    }
     return r;
-  } finally { clearTimeout(t); }
+  } finally {
+    clearTimeout(t);
+  }
 }
-async function json(caminho) {
-  const r = await chamarApi(caminho);
+
+async function getJson(caminho) {
+  const r = await req(caminho);
   if (DEMO) return r;
   if (!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
 
-/* ===================== classificação ===================== */
-function nivel(valor, f) {
-  if (valor === null || valor === undefined) return "sem";
-  if (valor < f.critMin || valor > f.critMax) return "critico";
-  if (valor < f.atenMin || valor > f.atenMax) return "atencao";
+function nivel(v, f) {
+  if (v === null || v === undefined) return "sem";
+  if (v < f.critMin || v > f.critMax) return "critico";
+  if (v < f.atenMin || v > f.atenMax) return "atencao";
   return "normal";
 }
+
 const ORDEM = { sem: 0, normal: 1, atencao: 2, critico: 3 };
+const ROTULO = { sem: "Sem leitura", normal: "Estável", atencao: "Atenção", critico: "Crítico" };
+
 function estadoPaciente(p) {
-  if (p.frequencia_cardiaca === null || p.frequencia_cardiaca === undefined || !p.ultima_medicao) return "sem";
-  const seg = (Date.now() - new Date(p.ultima_medicao).getTime()) / 1000;
-  if (seg > CFG.semSinalSeg) return "sem";
-  return [nivel(p.frequencia_cardiaca, CFG.faixas.fc), nivel(p.spo2, CFG.faixas.spo2), nivel(p.temperatura, CFG.faixas.temp)]
+  const u = p.ultima_leitura;
+  if (!u) return "sem";
+  return [nivel(u.fc, CFG.faixas.fc), nivel(u.spo2, CFG.faixas.spo2), nivel(u.temp, CFG.faixas.temp)]
     .reduce((a, b) => (ORDEM[b] > ORDEM[a] ? b : a), "normal");
 }
-const ROTULO = { sem: "Sem sinal", normal: "Estável", atencao: "Atenção", critico: "Crítico" };
 
-/* ===================== renderização ===================== */
 let selecionado = null;
 let ultimosPacientes = [];
 
@@ -265,238 +242,233 @@ function celulaSinal(rotulo, valor, casas, unidade, f) {
 
 function renderPacientes(lista) {
   ultimosPacientes = lista;
-  const caixa = $("pacientes");
-  const cartoes = lista.map((p) => {
+  $("n-pacientes").textContent = String(lista.length);
+  $("n-leituras").textContent = String(lista.filter((p) => p.ultima_leitura).length);
+  $("n-criticos").textContent = String(lista.filter((p) => estadoPaciente(p) === "critico" || Number(p.alertas_abertos) > 0).length);
+
+  $("pacientes").replaceChildren(...lista.map((p) => {
     const estado = estadoPaciente(p);
-    const semDados = estado === "sem";
-    const c = el("button", { class: `pac ${estado === "sem" ? "sem" : estado}${p.id === selecionado ? " sel" : ""}`, type: "button",
-                             "data-id": String(p.id), "aria-label": `Ver detalhes de ${p.nome}` }, [
-      el("div", { class: "topo" }, [el("span", { class: "nome", text: p.nome }), el("span", { class: "leito", text: p.leito })]),
+    const u = p.ultima_leitura;
+    const btn = el("button", {
+      class: `pac ${estado}${p.id === selecionado ? " sel" : ""}`,
+      type: "button"
+    }, [
+      el("div", { class: "topo" }, [
+        el("span", { class: "nome", text: `${p.id} · ${p.nome}` }),
+        el("span", { class: "leito", text: p.leito || "–" })
+      ]),
       el("div", { class: "sinais" }, [
-        celulaSinal("FC", semDados ? null : p.frequencia_cardiaca, 0, "bpm", CFG.faixas.fc),
-        celulaSinal("SpO2", semDados ? null : p.spo2, 0, "%", CFG.faixas.spo2),
-        celulaSinal("Temp.", semDados ? null : p.temperatura, 1, "°C", CFG.faixas.temp)
+        celulaSinal("FC", u?.fc, 0, "bpm", CFG.faixas.fc),
+        celulaSinal("SpO2", u?.spo2, 1, "%", CFG.faixas.spo2),
+        celulaSinal("Temp", u?.temp, 1, "°C", CFG.faixas.temp)
       ]),
       el("div", { class: "rodape" }, [
-        el("span", { text: p.ultima_medicao ? haQuanto(p.ultima_medicao) : "sem leituras" }),
+        el("span", { text: u?.ts ? fmtHora(u.ts) : "sem leitura" }),
         el("span", { class: `tag ${estado === "sem" ? "" : estado}`, text: ROTULO[estado] })
       ])
     ]);
-    c.addEventListener("click", () => selecionar(p.id));
-    return c;
-  });
-  caixa.replaceChildren(...cartoes);
-  $("n-criticos").textContent = String(lista.filter((p) => estadoPaciente(p) === "critico").length);
-}
-
-function renderResumo(r) {
-  $("n-pacientes").textContent = String(r.pacientes);
-  $("n-leituras").textContent = String(r.leituras);
-  $("n-alertas").textContent = String(r.alertas);
+    btn.addEventListener("click", () => selecionar(p.id));
+    return btn;
+  }));
 }
 
 function renderAlertas(lista) {
-  const corpo = $("alertas");
+  $("n-alertas").textContent = String(lista.length);
   $("alertas-vazio").hidden = lista.length > 0;
-  corpo.replaceChildren(...lista.map((a) => {
-    const sev = String(a.severidade || "").toUpperCase();
-    const cls = sev === "CRITICO" ? "critico" : sev === "ATENCAO" ? "atencao" : "";
+  $("alertas").replaceChildren(...lista.map((a) => {
+    const sev = String(a.severidade || "").toLowerCase();
+    const un = a.tipo === "SPO2_BAIXA" ? "%" : a.tipo === "FEBRE" || a.tipo === "HIPOTERMIA" ? "°C" : "bpm";
     return el("tr", {}, [
       el("td", { text: fmtHora(a.criado_em) }),
-      el("td", { text: a.paciente_nome || `Paciente ${a.paciente_id}` }),
-      el("td", { text: String(a.tipo || "").replaceAll("_", " ") }),
-      el("td", {}, [el("span", { class: `tag ${cls}`, text: sev === "CRITICO" ? "Crítico" : sev === "ATENCAO" ? "Atenção" : sev })]),
-      el("td", { class: "msg", text: a.mensagem || "" })
+      el("td", { text: a.paciente_id }),
+      el("td", { text: a.tipo || "" }),
+      el("td", {}, [el("span", { class: `tag ${sev}`, text: a.severidade || "" })]),
+      el("td", { text: `${nf(a.valor, 1)} ${un}` })
     ]);
   }));
 }
 
-/* gráfico de linha em SVG (sem bibliotecas) */
 const NS = "http://www.w3.org/2000/svg";
-function svg(tag, attrs = {}) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; }
+const svgEl = (tag, attrs = {}) => {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+};
 
 function graficoLinha(titulo, valores, f, casas) {
-  const caixa = el("div", { class: "grafico" }, [el("h3", { text: `${titulo} (${f.un})` })]);
-  if (valores.length < 2) { caixa.append(el("div", { class: "vazio", text: "Aguardando mais leituras…" })); return caixa; }
+  const box = el("div", { class: "grafico" }, [el("h3", { text: `${titulo} (${f.un})` })]);
+  if (valores.length < 2) {
+    box.append(el("div", { class: "vazio", text: "Sem histórico suficiente." }));
+    return box;
+  }
   const W = 320, H = 110, ml = 34, mr = 8, mt = 8, mb = 16;
-  const minV = Math.min(...valores, f.normalMin), maxV = Math.max(...valores, f.normalMax);
+  const minV = Math.min(...valores, f.normalMin);
+  const maxV = Math.max(...valores, f.normalMax);
   const folga = (maxV - minV) * 0.12 || 1;
   const lo = minV - folga, hi = maxV + folga;
   const x = (i) => ml + (i * (W - ml - mr)) / (valores.length - 1);
   const y = (v) => mt + (1 - (v - lo) / (hi - lo)) * (H - mt - mb);
-  const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Gráfico de ${titulo}` });
-  s.append(svg("rect", { x: ml, y: y(f.normalMax), width: W - ml - mr, height: Math.max(2, y(f.normalMin) - y(f.normalMax)),
-                         fill: "var(--ok-bg)" }));
-  for (const v of [lo + folga, hi - folga]) {
-    s.append(svg("line", { x1: ml, x2: W - mr, y1: y(v), y2: y(v), stroke: "var(--borda)", "stroke-width": 1 }));
-    const t = svg("text", { x: ml - 4, y: y(v) + 3, "text-anchor": "end", "font-size": 9, fill: "var(--suave)" });
-    t.textContent = nf(v, casas); s.append(t);
-  }
-  s.append(svg("polyline", { points: valores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "),
-                             fill: "none", stroke: "var(--azul)", "stroke-width": 2, "stroke-linejoin": "round" }));
+
+  const s = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+  s.append(svgEl("rect", {
+    x: ml, y: y(f.normalMax), width: W - ml - mr,
+    height: Math.max(2, y(f.normalMin) - y(f.normalMax)), fill: "var(--ok-bg)"
+  }));
+  s.append(svgEl("polyline", {
+    points: valores.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "),
+    fill: "none", stroke: "var(--azul)", "stroke-width": 2
+  }));
   const ult = valores.length - 1;
-  s.append(svg("circle", { cx: x(ult), cy: y(valores[ult]), r: 3.5, fill: "var(--azul)" }));
-  const lbl = svg("text", { x: W - mr, y: H - 3, "text-anchor": "end", "font-size": 9, fill: "var(--suave)" });
-  lbl.textContent = `últimas ${valores.length} leituras · atual ${nf(valores[ult], casas)} ${f.un}`; s.append(lbl);
-  caixa.append(s);
-  return caixa;
+  const lbl = svgEl("text", { x: W - mr, y: H - 3, "text-anchor": "end", "font-size": 9, fill: "var(--suave)" });
+  lbl.textContent = `atual: ${nf(valores[ult], casas)} ${f.un}`;
+  s.append(lbl);
+  box.append(s);
+  return box;
 }
 
 async function renderDetalhe() {
-  if (selecionado === null) { $("detalhe").hidden = true; return; }
-  const p = ultimosPacientes.find((q) => q.id === selecionado);
+  if (!selecionado) { $("detalhe").hidden = true; return; }
+  const p = ultimosPacientes.find((item) => item.id === selecionado);
   if (!p) { selecionado = null; $("detalhe").hidden = true; return; }
-  const leituras = (await json(`/pacientes/${selecionado}/leituras?limite=${CFG.limiteLeituras}`)).slice().reverse();
+  const leituras = (await getJson(`/pacientes/${encodeURIComponent(selecionado)}/leituras?limit=${CFG.limiteLeituras}`)).slice().reverse();
   $("detalhe").hidden = false;
-  $("det-titulo").textContent = `${p.nome} · leito ${p.leito}`;
+  $("det-titulo").textContent = `${p.id} · ${p.nome} (${p.leito || "sem leito"})`;
   $("det-graficos").replaceChildren(
-    graficoLinha("Frequência cardíaca", leituras.map((l) => Number(l.frequencia_cardiaca)), CFG.faixas.fc, 0),
-    graficoLinha("Saturação de oxigênio", leituras.map((l) => Number(l.spo2)), CFG.faixas.spo2, 0),
-    graficoLinha("Temperatura", leituras.map((l) => Number(l.temperatura)), CFG.faixas.temp, 1)
+    graficoLinha("FC", leituras.map((l) => Number(l.fc)), CFG.faixas.fc, 0),
+    graficoLinha("SpO2", leituras.map((l) => Number(l.spo2)), CFG.faixas.spo2, 1),
+    graficoLinha("Temp", leituras.map((l) => Number(l.temp)), CFG.faixas.temp, 1)
   );
 }
 
 function selecionar(id) {
-  selecionado = (selecionado === id) ? null : id;
+  selecionado = selecionado === id ? null : id;
   renderPacientes(ultimosPacientes);
   renderDetalhe().catch(() => {});
 }
 
-/* ===================== ciclo de atualização ===================== */
-let atualizando = false, timer = null, ultimaOk = null;
+let timer = null, ocupada = false;
 
-function definirStatus(texto, cls) { const s = $("status"); s.textContent = texto; s.className = "pill " + cls; }
-
-async function verificarApi() {
-  if (DEMO) { definirStatus("Demonstração", "atencao"); return; }
-  try {
-    const r = await chamarApi("/ready", { semChave: true });
-    if (r.ok) definirStatus("API online", "ok");
-    else definirStatus("API degradada (banco ou fila)", "atencao");
-  } catch (e) {
-    if (e instanceof ErroAuth) return;
-    definirStatus("API offline", "critico");
-  }
+function setStatus(texto, cls) {
+  $("status").textContent = texto;
+  $("status").className = "pill " + cls;
 }
 
 async function atualizar() {
-  if (atualizando) return;
-  atualizando = true;
+  if (ocupada) return;
+  ocupada = true;
   try {
-    const [resumo, pacientes, alertas] = await Promise.all([
-      json("/resumo"), json("/pacientes"), json(`/alertas?limite=${CFG.limiteAlertas}`)
+    const [pacientes, alertas] = await Promise.all([
+      getJson("/pacientes"),
+      getJson(`/alertas?status=aberto&limit=${CFG.limiteAlertas}`)
     ]);
-    renderResumo(resumo); renderPacientes(pacientes); renderAlertas(alertas);
+    renderPacientes(pacientes);
+    renderAlertas(alertas);
     await renderDetalhe();
-    ultimaOk = new Date();
-    $("atualizado").textContent = "Atualizado às " + ultimaOk.toLocaleTimeString("pt-BR");
+    $("atualizado").textContent = "Atualizado às " + new Date().toLocaleTimeString("pt-BR");
     $("banner").hidden = true;
+    setStatus(DEMO ? "Demo" : "Online", DEMO ? "atencao" : "ok");
   } catch (e) {
-    if (e instanceof ErroAuth) { sair("Chave inválida ou expirada. Entre novamente."); return; }
+    if (e instanceof ErroAuth) { sair("Sessão expirada. Entre novamente."); return; }
+    setStatus("Falha na API", "critico");
     $("banner").hidden = false;
-    $("banner").textContent = "Sem conexão com a API. Os dados exibidos podem estar desatualizados; tentando novamente"
-      + (ultimaOk ? ` (última atualização às ${ultimaOk.toLocaleTimeString("pt-BR")}).` : ".");
+    $("banner").textContent = "API indisponível ou instável. Tentando reconectar…";
   } finally {
-    atualizando = false;
+    ocupada = false;
   }
-  verificarApi();
 }
 
 function iniciar() {
-  $("login").hidden = true; $("app").hidden = false;
+  $("login").hidden = true;
+  $("app").hidden = false;
   $("demo-aviso").hidden = !DEMO;
   atualizar();
   clearInterval(timer);
   timer = setInterval(() => { if (!document.hidden) atualizar(); }, CFG.intervaloMs);
 }
 
-function sair(mensagem = "") {
+function sair(msg = "") {
   clearInterval(timer); timer = null;
-  sessionStorage.removeItem(CHAVE_SESSAO);
-  chave = ""; selecionado = null; ultimaOk = null;
-  $("app").hidden = true; $("login").hidden = false;
-  $("chave").value = ""; $("login-erro").textContent = mensagem;
-  $("chave").focus();
+  token = ""; selecionado = null;
+  sessionStorage.removeItem(TOKEN_KEY);
+  $("app").hidden = true;
+  $("login").hidden = false;
+  $("senha").value = "";
+  $("login-erro").textContent = msg;
 }
 
-/* ===================== login ===================== */
 $("form-login").addEventListener("submit", async (ev) => {
   ev.preventDefault();
-  const valor = $("chave").value.trim();
-  if (!valor) return;
-  $("btn-entrar").disabled = true; $("login-erro").textContent = "";
-  chave = valor;
+  $("btn-entrar").disabled = true;
+  $("login-erro").textContent = "";
   try {
-    await json("/resumo");                       // valida a chave de verdade
-    sessionStorage.setItem(CHAVE_SESSAO, chave); // vale só nesta aba; nunca vai para o código nem para o repositório
+    const r = await req("/auth/login", {
+      method: "POST",
+      semAuth: true,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: $("email").value.trim(), senha: $("senha").value })
+    });
+    if (r.status === 401) { $("login-erro").textContent = "E-mail ou senha inválidos."; return; }
+    if (!r.ok) { $("login-erro").textContent = "Erro ao autenticar (" + r.status + ")."; return; }
+    const data = await r.json();
+    token = data.access_token;
+    sessionStorage.setItem(TOKEN_KEY, token);
     iniciar();
-  } catch (e) {
-    chave = "";
-    $("login-erro").textContent = e instanceof ErroAuth
-      ? "Chave incorreta."
-      : "Não foi possível conectar à API. Verifique se o sistema está no ar.";
-  } finally { $("btn-entrar").disabled = false; }
+  } catch {
+    $("login-erro").textContent = "Não foi possível conectar à API.";
+  } finally {
+    $("btn-entrar").disabled = false;
+  }
 });
+
 $("sair").addEventListener("click", () => sair());
 $("det-fechar").addEventListener("click", () => selecionar(selecionado));
 
-/* ===================== modo demonstração (dados simulados) ===================== */
-const demoEstado = { pacientes: [], leituras: {}, alertas: [], totalLeituras: 0, seq: 0 };
-(function demoInit() {
-  const base = [["Paciente 01", "UTI-01"], ["Paciente 02", "UTI-02"], ["Paciente 03", "UTI-03"], ["Paciente 04", "ENF-01"], ["Paciente 05", "ENF-02"]];
-  base.forEach(([nome, leito], i) => {
-    const id = i + 1;
-    demoEstado.pacientes.push({ id, nome, leito, fc: 72 + i * 4, spo2: 98 - (i % 2), temp: 36.5 + i * 0.1 });
-    demoEstado.leituras[id] = [];
-  });
-})();
-function demoTick(quando = Date.now()) {
-  const agora = new Date(quando).toISOString();
-  for (const p of demoEstado.pacientes) {
-    p.fc = Math.min(180, Math.max(35, p.fc + (Math.random() - 0.5) * 6));
-    p.spo2 = Math.min(100, Math.max(80, p.spo2 + (Math.random() - 0.5) * 1.4));
-    p.temp = Math.min(41, Math.max(35, p.temp + (Math.random() - 0.5) * 0.15));
-    if (p.id === 4 && Math.random() < 0.08) p.temp = 39.2 + Math.random() * 0.5;
-    else if (p.temp > 38) p.temp -= 0.4;
-    if (p.id === 2 && Math.random() < 0.3) { p.spo2 = 86 + Math.random() * 3; p.fc = 135 + Math.random() * 10; }
-    if (p.spo2 < 94 && !(p.id === 2 && Math.random() < 0.5)) p.spo2 += 2;   // recupera aos poucos
-    if (p.fc > 110 && !(p.id === 2 && Math.random() < 0.5)) p.fc -= 8;
-    const l = { id: `demo-${++demoEstado.seq}`, paciente_id: p.id, frequencia_cardiaca: Math.round(p.fc), spo2: Math.round(p.spo2),
-                temperatura: Math.round(p.temp * 10) / 10, medido_em: agora };
-    demoEstado.leituras[p.id].unshift(l);
-    demoEstado.leituras[p.id].length = Math.min(demoEstado.leituras[p.id].length, 120);
-    demoEstado.totalLeituras++;
-    if (l.spo2 < 90) demoEstado.alertas.unshift({ id: demoEstado.seq, paciente_id: p.id, paciente_nome: p.nome, tipo: "SPO2_BAIXA", severidade: "CRITICO", mensagem: `SpO2 em ${l.spo2}%`, criado_em: agora });
-    if (l.frequencia_cardiaca > 130) demoEstado.alertas.unshift({ id: demoEstado.seq + 0.5, paciente_id: p.id, paciente_nome: p.nome, tipo: "FC_ANORMAL", severidade: "CRITICO", mensagem: `FC em ${l.frequencia_cardiaca} bpm`, criado_em: agora });
-    if (l.temperatura >= 39) demoEstado.alertas.unshift({ id: demoEstado.seq + 0.7, paciente_id: p.id, paciente_nome: p.nome, tipo: "FEBRE_ALTA", severidade: "ATENCAO", mensagem: `Temperatura em ${l.temperatura} °C`, criado_em: agora });
+const demoDados = {
+  pacientes: [
+    { id: "P001", nome: "Paciente Fictício 001", leito: "L-001", fc: 78, spo2: 97.5, temp: 36.6, hist: [] },
+    { id: "P007", nome: "Paciente Fictício 007", leito: "L-007", fc: 126, spo2: 88.2, temp: 38.4, hist: [] }
+  ],
+  alertas: []
+};
+function demoTick() {
+  const ts = new Date().toISOString();
+  demoDados.alertas = [];
+  for (const p of demoDados.pacientes) {
+    p.fc = Math.round(Math.max(45, Math.min(140, p.fc + (Math.random() - 0.5) * 10)));
+    p.spo2 = Number(Math.max(85, Math.min(99.5, p.spo2 + (Math.random() - 0.5) * 2.5)).toFixed(1));
+    p.temp = Number(Math.max(35.5, Math.min(39.2, p.temp + (Math.random() - 0.5) * 0.4)).toFixed(1));
+    p.hist.push({ fc: p.fc, spo2: p.spo2, temp: p.temp, ts });
+    if (p.hist.length > 40) p.hist.shift();
+    if (p.spo2 < 90) demoDados.alertas.push({ id: p.id + "-spo2", paciente_id: p.id, tipo: "SPO2_BAIXA", severidade: "ALTA", valor: p.spo2, criado_em: ts });
+    if (p.fc > 120) demoDados.alertas.push({ id: p.id + "-fc", paciente_id: p.id, tipo: "TAQUICARDIA", severidade: "MEDIA", valor: p.fc, criado_em: ts });
+    if (p.temp >= 38) demoDados.alertas.push({ id: p.id + "-temp", paciente_id: p.id, tipo: "FEBRE", severidade: "MEDIA", valor: p.temp, criado_em: ts });
   }
 }
-for (let i = 30; i > 0; i--) demoTick(Date.now() - i * 3000);   // histórico inicial para os gráficos
-let demoUltimoTick = 0;
+for (let i = 0; i < 12; i++) demoTick();
 async function demoApi(caminho) {
-  const agora = Date.now();
-  if (agora - demoUltimoTick > 1500) { demoTick(); demoUltimoTick = agora; }
-  if (caminho.startsWith("/ready")) return { ok: true, status: 200 };
-  if (caminho.startsWith("/resumo")) return { pacientes: demoEstado.pacientes.length, leituras: demoEstado.totalLeituras, alertas: demoEstado.alertas.length };
+  demoTick();
   if (caminho.startsWith("/pacientes/")) {
-    const m = caminho.match(/^\/pacientes\/(\d+)\/leituras\?limite=(\d+)/);
-    return demoEstado.leituras[Number(m[1])].slice(0, Number(m[2]));
+    const id = caminho.split("/")[2];
+    const p = demoDados.pacientes.find((x) => x.id === id);
+    return (p ? p.hist : []).slice().reverse();
   }
   if (caminho.startsWith("/pacientes")) {
-    return demoEstado.pacientes.map((p) => { const u = demoEstado.leituras[p.id][0];
-      return { id: p.id, nome: p.nome, leito: p.leito, criado_em: new Date().toISOString(),
-               frequencia_cardiaca: u.frequencia_cardiaca, spo2: u.spo2, temperatura: u.temperatura, ultima_medicao: u.medido_em }; });
+    return demoDados.pacientes.map((p) => ({
+      id: p.id, nome: p.nome, leito: p.leito,
+      alertas_abertos: demoDados.alertas.filter((a) => a.paciente_id === p.id).length,
+      ultima_leitura: { fc: p.fc, spo2: p.spo2, temp: p.temp, ts: p.hist.at(-1)?.ts }
+    }));
   }
-  if (caminho.startsWith("/alertas")) return demoEstado.alertas.slice(0, CFG.limiteAlertas);
-  throw new Error("rota demo desconhecida");
+  if (caminho.startsWith("/alertas")) return demoDados.alertas;
+  return [];
 }
 
-/* ===================== inicialização ===================== */
-(function () {
-  if (DEMO) { chave = "demo"; iniciar(); return; }
-  const salva = sessionStorage.getItem(CHAVE_SESSAO);
-  if (salva) { chave = salva; iniciar(); }
-})();
+if (DEMO) {
+  iniciar();
+} else {
+  const salvo = sessionStorage.getItem(TOKEN_KEY);
+  if (salvo) { token = salvo; iniciar(); }
+}
 </script>
 </body>
 </html>
